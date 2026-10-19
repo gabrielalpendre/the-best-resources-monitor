@@ -1,0 +1,45 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Monitor de Evidencias: Windows, macOS e Linux com a mesma interface (Avalonia). Ver build.ps1 / build.sh. -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>EvidenceMonitor</AssemblyName>
+    <RootNamespace>EvidenceMonitor</RootNamespace>
+    <Version>2.0.0</Version>
+    <Product>Monitor de Evidencias</Product>
+    <Authors>Gabriel Alpendre</Authors>
+    <Copyright>Copyright (c) 2026 Gabriel Alpendre. Todos os direitos reservados.</Copyright>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <InvariantGlobalization>false</InvariantGlobalization>
+    <SatelliteResourceLanguages>pt-BR</SatelliteResourceLanguages>
+    <!-- publicacao: um executavel autocontido por sistema, sem exigir .NET instalado -->
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <DebugType>none</DebugType>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CA1416</NoWarn>
+  </PropertyGroup>
+
+  <!-- No macOS as bibliotecas nativas ficam ao lado do binario dentro do .app, para o codesign assinar tudo -->
+  <PropertyGroup Condition="!$(RuntimeIdentifier.StartsWith('osx'))">
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="report.html" LogicalName="EvidenceMonitor.report.html" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="11.3.19" />
+    <PackageReference Include="Avalonia.Desktop" Version="11.3.19" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.19" />
+    <PackageReference Include="Avalonia.Fonts.Inter" Version="11.3.19" />
+    <!-- so usados no Windows (Event Log e WMI); no Mac/Linux nao sao carregados -->
+    <PackageReference Include="System.Diagnostics.EventLog" Version="10.0.13" />
+    <PackageReference Include="System.Management" Version="10.0.13" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,345 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'">
+<title>Evidências de Desempenho</title>
+<style>
+:root {
+  color-scheme: light;
+  --page: #f9f9f7; --surface: #fcfcfb; --ink: #0b0b0b; --ink2: #52514e; --muted: #898781;
+  --grid: #e1e0d9; --axis: #c3c2b7; --border: rgba(11,11,11,0.10);
+  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100; --s5: #e87ba4; --s6: #008300;
+  --critical: #d03b3b; --warning: #fab219; --good: #0ca30c;
+  --crit-bg: rgba(208,59,59,0.08); --ok-bg: rgba(12,163,12,0.08);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --page: #0d0d0d; --surface: #1a1a19; --ink: #f0efec; --ink2: #c3c2b7; --muted: #898781;
+    --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,0.10);
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #d55181; --s6: #008300;
+    --crit-bg: rgba(208,59,59,0.16); --ok-bg: rgba(12,163,12,0.14);
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page: #0d0d0d; --surface: #1a1a19; --ink: #f0efec; --ink2: #c3c2b7; --muted: #898781;
+  --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,0.10);
+  --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #d55181; --s6: #008300;
+  --crit-bg: rgba(208,59,59,0.16); --ok-bg: rgba(12,163,12,0.14);
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--page); color: var(--ink); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+main { max-width: 1100px; margin: 0 auto; padding: 32px 16px 64px; }
+h1 { font-size: 26px; margin: 0 0 4px; letter-spacing: -0.01em; }
+h2 { font-size: 18px; margin: 40px 0 6px; }
+.sub { color: var(--ink2); margin: 0 0 20px; font-size: 14px; }
+.note { color: var(--ink2); font-size: 13.5px; margin: 4px 0 12px; max-width: 78ch; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
+.verdict { border-left: 4px solid var(--critical); background: var(--crit-bg); padding: 14px 18px; border-radius: 8px; }
+.verdict.ok { border-left-color: var(--good); background: var(--ok-bg); }
+.verdict ul { margin: 6px 0 0; padding-left: 20px; }
+.verdict li { margin: 4px 0; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin: 20px 0; }
+.tile .v { font-size: 26px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.tile .l { color: var(--ink2); font-size: 13px; }
+.tile .k { font-size: 12px; color: var(--muted); }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 480px), 1fr)); gap: 16px; }
+.chart h4 { margin: 0; font-size: 14px; }
+.grid2 svg text { font-size: 14px; }
+.chart .cap { color: var(--muted); font-size: 12px; margin: 0 0 6px; }
+svg { display: block; width: 100%; height: auto; overflow: visible; }
+svg text { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: 12.5px; color: var(--ink2); margin: 6px 0 4px; }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--grid); vertical-align: top; }
+th { color: var(--ink2); font-weight: 600; position: sticky; top: 0; background: var(--surface); }
+td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.scroll { overflow-x: auto; max-height: 560px; overflow-y: auto; }
+.tag { display: inline-block; padding: 1px 8px; border-radius: 99px; font-size: 12px; border: 1px solid var(--border); white-space: nowrap; }
+.tag::before { content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 5px; background: var(--c); }
+.msg { color: var(--ink2); font-size: 12px; max-width: 64ch; }
+details summary { cursor: pointer; color: var(--ink2); font-size: 12px; }
+#tip { position: fixed; pointer-events: none; background: var(--surface); color: var(--ink); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; font-size: 12.5px; box-shadow: 0 4px 16px rgba(0,0,0,.15); display: none; z-index: 10; max-width: 340px; }
+.warnbox { border-left: 4px solid var(--warning); padding: 10px 14px; background: var(--surface); border-radius: 6px; font-size: 13.5px; }
+.empty { color: var(--muted); font-size: 13px; padding: 12px 0; }
+code { font-size: 12.5px; background: var(--grid); padding: 1px 5px; border-radius: 4px; }
+@media print { #tip { display: none !important; } .scroll { max-height: none; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>Evidências de desempenho: <span id="host"></span></h1>
+  <p class="sub" id="subtitle"></p>
+  <div class="verdict" id="verdict"></div>
+  <div class="tiles" id="tiles"></div>
+
+  <h2>1. Memória dos maiores processos ao longo do tempo</h2>
+  <p class="note" id="privnote">Memória privada comprometida (inclui a parte que foi para o pagefile) dos 5 processos que mais consumiram no período. Uma linha que só sobe e não volta indica vazamento de memória.</p>
+  <div class="card chart" id="c-procs"></div>
+
+  <h2>2. Eventos críticos do <span id="osname">Windows</span></h2>
+  <p class="note">Contagem por <span id="evunit"></span>, <span id="evsrc">lida diretamente do Visualizador de Eventos (logs System e Application)</span>, incluindo eventos anteriores à instalação do monitor.</p>
+  <div class="card chart" id="c-events"></div>
+
+  <h2>3. Métricas do sistema</h2>
+  <p class="note" id="metricnote"></p>
+  <div class="grid2" id="metrics"></div>
+  <div class="warnbox" style="margin-top:16px" id="tempnote"><b>Temperatura da CPU não coletada.</b> Este equipamento não expõe sensores térmicos ao Windows via ACPI/WMI. Ler a temperatura exige um driver de kernel (LibreHardwareMonitor ou HWiNFO). Indício indireto: eventos de limitação térmica do processador (Kernel-Processor-Power 37) aparecem na seção 2 quando ocorrem.</div>
+
+  <h2>4. Picos de CPU (medidos a cada 1 s)</h2>
+  <p class="note">Cada vez que a CPU da máquina passou de 70%, o monitor registrou o episódio segundo a segundo e quem consumiu. Picos acima de 90% são críticos. % = parcela da CPU total da máquina.</p>
+  <div class="card scroll" id="t-picos"></div>
+
+  <h2>4b. Incidentes capturados pelo monitor</h2>
+  <p class="note">A cada evento crítico, o monitor salva um snapshot dos processos e das métricas daquele instante.</p>
+  <div class="card scroll" id="t-inc"></div>
+
+  <h2>5. Ações e alertas registrados</h2>
+  <div class="card scroll" id="t-act"></div>
+
+  <h2>6. Todos os eventos do período</h2>
+  <div class="card scroll" id="t-all"></div>
+
+  <p class="note" style="margin-top:24px">Gerado pelo Monitor de Evidências em <span id="gen"></span>. Fontes: <span id="sources">contadores de desempenho do Windows (PDH), lista de processos e Visualizador de Eventos</span>.</p>
+</main>
+<div id="tip"></div>
+<script>
+const D = /*__DATA__*/null;
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const pad = n => String(n).padStart(2, '0');
+const fmtT = s => s.slice(11, 19);
+const fmtDT = s => s ? s.slice(8,10) + '/' + s.slice(5,7) + ' ' + s.slice(11,16) : '—';
+const nf = (v, d=0) => Number(v).toLocaleString('pt-BR', {maximumFractionDigits: d, minimumFractionDigits: d});
+const ms = s => new Date(s).getTime();
+const CAT = {
+  mem:   {l: 'Memória insuficiente (2004)', c: 'var(--s1)'},
+  dwm:   {l: 'DWM encerrado (tela travou)', c: 'var(--s2)'},
+  crash: {l: 'Falha de aplicativo (1000)', c: 'var(--s3)'},
+  hang:  {l: 'App sem resposta (1002)', c: 'var(--s4)'},
+  svc:   {l: 'Serviço encerrado (7031/7034)', c: 'var(--s5)'},
+  crit:  {l: 'Crítico: energia/hardware/térmico', c: 'var(--s6)'},
+};
+const SER = ['var(--s1)','var(--s2)','var(--s3)','var(--s4)','var(--s5)'];
+const tag = c => `<span class="tag" style="--c:${(CAT[c]||CAT.crit).c}">${(CAT[c]||CAT.crit).l}</span>`;
+const I = D.info, R = D.rows.filter(r => r.mem_avail > 0 && r.commit > 0), E = D.events;
+// textos que mudam por sistema (relatorios antigos, sem "platform", sao do Windows)
+const OS = I.platform || 'windows';
+const TXT = {
+  windows: {tile: {mem: 'evento 2004', dwm: 'Dwminit', app: 'eventos 1000 / 1002'}, limit: 'RAM + pagefile', net: 'sem vEthernet do WSL/Hyper-V'},
+  linux: {tile: {mem: 'OOM killer', dwm: 'servidor gráfico / GPU', app: 'core dump / tarefa bloqueada'}, limit: 'RAM + swap', net: 'sem interfaces virtuais (docker, veth, VPN)',
+    evsrc: 'lida do journald (kernel, systemd e systemd-coredump)', sources: '/proc e /sys do Linux, lista de processos e journald',
+    priv: 'Memória privada (anônima residente + swap) dos 5 processos que mais consumiram no período. Uma linha que só sobe e não volta indica vazamento de memória.',
+    temp: '<b>Temperatura da CPU não coletada.</b> Indício indireto: mensagens do kernel de limitação térmica (<code>cpu clock throttled</code>, <code>temperature above threshold</code>) aparecem na seção 2 como eventos críticos.'},
+  macos: {tile: {mem: 'JetsamEvent', dwm: 'WindowServer', app: 'crash / hang (DiagnosticReports)'}, limit: 'RAM + swap', net: 'sem interfaces virtuais (utun, awdl, bridge)',
+    evsrc: 'lida dos relatórios de diagnóstico do macOS (DiagnosticReports: crash, hang, jetsam e kernel panic)', sources: 'mach/libproc do macOS, lista de processos e DiagnosticReports',
+    priv: 'Memória dos 5 processos que mais consumiram no período (footprint físico, o mesmo do Monitor de Atividade). Uma linha que só sobe e não volta indica vazamento de memória.',
+    temp: '<b>Temperatura da CPU não coletada.</b> O macOS só expõe sensores a administradores. Indício indireto: quando o sistema limita a velocidade da CPU por temperatura (<code>pmset -g therm</code>), o monitor registra um evento crítico na seção 2. O clock efetivo também não é exposto sem privilégio.'},
+}[OS] || {};
+if (OS !== 'windows' && I.cats) Object.keys(CAT).forEach(k => { if (I.cats[k]) CAT[k].l = I.cats[k]; });
+$('#osname').textContent = I.osname || 'Windows';
+if (TXT.evsrc) $('#evsrc').textContent = TXT.evsrc;
+if (TXT.sources) $('#sources').textContent = TXT.sources;
+if (TXT.priv) $('#privnote').textContent = TXT.priv;
+if (TXT.temp) $('#tempnote').innerHTML = TXT.temp;
+const tip = $('#tip');
+function showTip(e, h) { tip.innerHTML = h; tip.style.display = 'block';
+  const w = tip.offsetWidth, x = e.clientX + 14 + w > innerWidth ? e.clientX - w - 14 : e.clientX + 14;
+  tip.style.left = x + 'px'; tip.style.top = (e.clientY + 14) + 'px'; }
+const hideTip = () => tip.style.display = 'none';
+const span = I.hours > 36;
+const xLabel = t => { const d = new Date(t); return span ? `${pad(d.getDate())}/${pad(d.getMonth()+1)} ${pad(d.getHours())}h` : `${pad(d.getHours())}:${pad(d.getMinutes())}`; };
+
+$('#host').textContent = I.host;
+$('#subtitle').textContent = [I.model, I.cpu, I.os, I.boot ? `ligado desde ${fmtDT(I.boot)}` : '', `período ${fmtDT(I.from)} a ${fmtDT(I.to)}`].filter(Boolean).join(' · ');
+$('#gen').textContent = fmtDT(I.to);
+
+// resumo
+const cnt = {}; E.forEach(e => cnt[e.c] = (cnt[e.c] || 0) + 1);
+const maxBy = (k) => R.reduce((a, r) => (a == null || r[k] > a[k]) ? r : a, null);
+const minBy = (k) => R.reduce((a, r) => (a == null || r[k] < a[k]) ? r : a, null);
+const pc = maxBy('commit'), pa = minBy('mem_avail'), pp = maxBy('pages');
+const topProc = D.procSeries[0];
+const ram = R.length ? R[R.length-1].ram_gb : 0;
+const memCulprits = {};
+E.filter(e => e.c === 'mem').forEach(e => { const m = e.msg.match(/([\w.\-]+\.exe) \(\d+\)/) || e.msg.match(/Killed process \d+ \(([^)]+)\)/) || e.msg.match(/maior processo (.+)$/); if (m) memCulprits[m[1]] = (memCulprits[m[1]] || 0) + 1; });
+const culprit = Object.entries(memCulprits).sort((a,b) => b[1]-a[1])[0];
+const findings = [];
+if (topProc && ram && topProc.peak >= ram * 0.25) findings.push(`<b>${esc(topProc.name)}</b> chegou a <b>${nf(topProc.peak,1)} GB</b> de memória privada (a máquina tem ${nf(ram,1)} GB de RAM).`);
+if (cnt.mem) findings.push(`<b>${cnt.mem}</b> esgotamento(s) de memória registrados pelo ${esc(I.osname || 'Windows')}${culprit ? `; principal consumidor citado: <b>${esc(culprit[0])}</b> (${culprit[1]}×)` : ''}.`);
+if (cnt.dwm) findings.push(`<b>${cnt.dwm}</b> queda(s) ${OS === 'windows' ? 'do DWM' : OS === 'macos' ? 'do WindowServer' : 'do servidor gráfico/GPU'} (o processo que desenha a tela), o que corresponde a travamentos visíveis.`);
+if (pc && pc.commit >= 90) findings.push(`Memória comprometida chegou a <b>${nf(pc.commit)}%</b> do limite em ${fmtDT(pc.ts)}.`);
+if (pp && pp.pages >= 5000) findings.push(`Paginação chegou a <b>${nf(pp.pages)} páginas/s</b> em ${fmtDT(pp.ts)} (disco ${nf(pp.disk_busy)}% ocupado), o que causa lentidão generalizada.`);
+if (cnt.crit) findings.push(`<b>${cnt.crit}</b> evento(s) crítico(s) de energia/hardware/térmico; ver seção 6.`);
+const v = $('#verdict');
+if (findings.length) v.innerHTML = `<b>Achados do período</b><ul>${findings.map(f => `<li>${f}</li>`).join('')}</ul>`;
+else { v.classList.add('ok'); v.innerHTML = '<b>Nenhuma anomalia relevante no período.</b>'; }
+
+const tiles = [
+  [topProc ? nf(topProc.peak,1) + ' GB' : '—', 'Pico de memória de um processo', topProc ? topProc.name : ''],
+  [cnt.mem || 0, 'Esgotamentos de memória', TXT.tile.mem],
+  [cnt.dwm || 0, OS === 'windows' ? 'Quedas do DWM (tela)' : 'Travamentos da tela', TXT.tile.dwm],
+  [(cnt.crash || 0) + (cnt.hang || 0), 'Falhas e travamentos de apps', TXT.tile.app],
+  [pc ? nf(pc.commit) + '%' : '—', 'Pico de memória comprometida', pc ? fmtDT(pc.ts) : ''],
+  [pa ? nf(pa.mem_avail) + ' MB' : '—', 'Menor RAM disponível', pa ? fmtDT(pa.ts) : ''],
+];
+$('#tiles').innerHTML = tiles.map(([v,l,k]) => `<div class="card tile"><div class="v">${v}</div><div class="l">${l}</div><div class="k">${esc(k)}</div></div>`).join('');
+
+// chart helpers
+const W = 640, H = 220, M = {l: 52, r: 16, t: 12, b: 28};
+const t0 = ms(I.from), t1 = ms(I.to);
+const mkX = (a, b) => t => M.l + (W-M.l-M.r) * (t - a) / Math.max(1, b - a);
+let X = mkX(t0, t1);
+const gapMs = (I.bucket || I.interval) * 1000 * 4;
+function niceMax(v) { if (!(v > 0)) return 1; const p = Math.pow(10, Math.floor(Math.log10(v))); for (const m of [1,1.2,1.5,2,2.5,3,4,5,6,8,10]) if (m*p >= v) return m*p; return 10*p; }
+function axes(max, fmt) { let s = '';
+  for (let i = 0; i <= 4; i++) { const val = max*i/4, y = M.t + (H-M.t-M.b)*(1-i/4);
+    s += `<line x1="${M.l}" x2="${W-M.r}" y1="${y}" y2="${y}" stroke="var(${i?'--grid':'--axis'})"/><text x="${M.l-6}" y="${y+4}" text-anchor="end">${fmt(val)}</text>`; }
+  const d0 = Xinv(M.l), d1 = Xinv(W-M.r); for (let i = 0; i <= 4; i++) { const t = d0 + (d1-d0)*i/4; s += `<text x="${X(t)}" y="${H-8}" text-anchor="${i==0?'start':i==4?'end':'middle'}">${xLabel(t)}</text>`; }
+  return s; }
+const Xinv = px => { const p = X(0), q = X(1e9); return (px - p) / (q - p) * 1e9; };
+const markTimes = E.filter(e => e.c === 'dwm' || e.c === 'crit').map(e => ms(e.t));
+function marks() { const lo = Xinv(M.l), hi = Xinv(W-M.r); return markTimes.filter(t => t >= lo && t <= hi).map(t => `<line x1="${X(t)}" x2="${X(t)}" y1="${M.t}" y2="${H-M.b}" stroke="var(--critical)" stroke-width="1.5" stroke-dasharray="4 3" opacity=".8"/>`).join(''); }
+function pathOf(ts, vals, Y) { let d = '', prev = null;
+  ts.forEach((t, i) => { const v = vals[i]; if (v == null || v < 0) { prev = null; return; }
+    d += `${prev == null || t - prev > gapMs ? 'M' : 'L'}${X(t).toFixed(1)},${Y(v).toFixed(1)}`; prev = t; }); return d; }
+
+// cursor sincronizado: o mouse sobre um grafico marca o mesmo instante em todos
+const SYNC = [];
+const syncAll = (t, src) => SYNC.forEach(c => c.show(t, c === src));
+const unsyncAll = () => SYNC.forEach(c => c.hide());
+
+function multiLine(el, title, cap, ts, series, o) {
+  X = mkX(ts.length ? Math.max(t0, Math.min(ts[0], t1 - 3600e3)) : t0, t1); const Xc = X;
+  if (!ts.length) { el.innerHTML = `<h4>${title}</h4><p class="empty">Sem dados coletados no período.</p>`; return; }
+  const max = o.max ?? niceMax(Math.max(...series.flatMap(s => s.v.filter(v => v != null))) * 1.05);
+  const Y = v => M.t + (H-M.t-M.b) * (1 - Math.min(v, max) / max);
+  let s = axes(max, o.fmt) + marks();
+  series.forEach(se => s += `<path d="${pathOf(ts, se.v, Y)}" fill="none" stroke="${se.color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`);
+  s += `<line class="xh" y1="${M.t}" y2="${H-M.b}" stroke="var(--ink2)" visibility="hidden"/>`;
+  s += series.map((se, i) => `<circle class="xd" data-i="${i}" r="4" fill="${se.color}" stroke="var(--surface)" stroke-width="2" visibility="hidden"/>`).join('');
+  s += `<g class="xl" visibility="hidden"><rect y="${M.t + 2}" height="18" rx="3" fill="var(--surface)" stroke="var(--axis)"/><text y="${M.t + 15}" style="fill:var(--ink);font-weight:600"></text></g>`;
+  s += `<rect x="${M.l}" y="0" width="${W-M.l-M.r}" height="${H}" fill="transparent" class="hit"/>`;
+  const legend = series.length > 1 ? `<div class="legend">${series.map(se => `<span><i style="background:${se.color}"></i>${esc(se.name)}</span>`).join('')}</div>` : '';
+  el.innerHTML = `<h4>${title}</h4><p class="cap">${cap}</p>${legend}<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(title)}">${s}</svg>`;
+  const svg = el.querySelector('svg'), xh = svg.querySelector('.xh'), dots = svg.querySelectorAll('.xd');
+  const hit = svg.querySelector('.hit'), xl = svg.querySelector('.xl'), xlr = xl.querySelector('rect'), xlt = xl.querySelector('text');
+  const nearest = (get, target) => { let bi = 0, bd = 1e18; ts.forEach((t, i) => { const dd = Math.abs(get(t) - target); if (dd < bd) { bd = dd; bi = i; } }); return bi; };
+  let tipHtml = '';
+  const me = {
+    // desenha a linha e os pontos no instante t; o grafico de origem monta o tooltip, os demais um rotulo com o valor
+    show(t, isSrc) {
+      const bi = nearest(x => x, t);
+      if (Math.abs(ts[bi] - t) > gapMs) { this.hide(); return; }
+      X = Xc; const cx = X(ts[bi]); xh.setAttribute('x1', cx); xh.setAttribute('x2', cx); xh.setAttribute('visibility', 'visible');
+      xh.setAttribute('stroke-dasharray', isSrc ? '' : '3 3');
+      let h = `${fmtDT(new Date(ts[bi] - new Date().getTimezoneOffset()*6e4).toISOString())}${span ? '' : ':' + pad(new Date(ts[bi]).getSeconds())}`;
+      const parts = [];
+      series.forEach((se, i) => { const val = se.v[bi]; const dot = dots[i];
+        if (val == null || val < 0) { dot.setAttribute('visibility', 'hidden'); return; }
+        dot.setAttribute('cx', cx); dot.setAttribute('cy', Y(val)); dot.setAttribute('visibility', 'visible');
+        parts.push(`${o.fmt(val)} ${o.unit || ''}`.trim());
+        h += `<br>${series.length > 1 ? esc(se.name) + ': ' : ''}<b>${o.fmt(val)}</b> ${o.unit || ''}`; });
+      if (o.extra) h += o.extra(bi);
+      tipHtml = h;
+      if (isSrc || !parts.length) { xl.setAttribute('visibility', 'hidden'); return; }
+      // so o maior valor quando ha varias series, para o rotulo caber
+      xlt.textContent = series.length > 1 ? `${parts.length} séries · máx ${o.fmt(Math.max(...series.map(se => se.v[bi]).filter(v => v != null && v >= 0)))} ${o.unit || ''}` : parts[0];
+      const tw = xlt.getComputedTextLength() + 10;
+      let lx = cx + 6; if (lx + tw > W - M.r) lx = cx - 6 - tw;
+      xlr.setAttribute('x', lx); xlr.setAttribute('width', tw); xlt.setAttribute('x', lx + 5);
+      xl.setAttribute('visibility', 'visible');
+    },
+    hide() { xh.setAttribute('visibility','hidden'); xl.setAttribute('visibility','hidden'); dots.forEach(d => d.setAttribute('visibility','hidden')); },
+  };
+  SYNC.push(me);
+  hit.addEventListener('mousemove', e => {
+    const r = svg.getBoundingClientRect(), px = (e.clientX - r.left) * W / r.width;
+    const bi = nearest(Xc, px);
+    syncAll(ts[bi], me);
+    showTip(e, tipHtml);
+  });
+  hit.addEventListener('mouseleave', () => { hideTip(); unsyncAll(); });
+}
+
+const TS = D.rows.map(r => ms(r.ts));
+multiLine($('#c-procs'), 'Memória privada por processo (GB)', I.bucket ? `Máximo a cada ${I.bucket / 60} min` : `Amostra a cada ${I.interval} s`, TS,
+  D.procSeries.map((p, i) => ({name: p.name, color: SER[i], v: p.v})), {fmt: v => nf(v, v < 10 ? 1 : 0), unit: 'GB'});
+
+// eventos por dia/hora
+(() => {
+  const el = $('#c-events'), keys = Object.keys(CAT);
+  const byHour = !span; $('#evunit').textContent = byHour ? 'hora' : 'dia';
+  const step = byHour ? 3600e3 : 86400e3;
+  const start = new Date(t0); if (byHour) start.setMinutes(0,0,0); else start.setHours(0,0,0,0);
+  const bins = []; for (let t = start.getTime(); t <= t1; t += step) bins.push({t, n: {}});
+  E.forEach(e => { const i = Math.floor((ms(e.t) - start.getTime()) / step); if (bins[i]) bins[i].n[e.c] = (bins[i].n[e.c] || 0) + 1; });
+  const tot = bins.map(b => keys.reduce((a, k) => a + (b.n[k] || 0), 0));
+  const max = niceMax(Math.max(1, ...tot) * 1.1);
+  const slot = (W-M.l-M.r) / bins.length, bw = Math.max(3, Math.min(40, slot * 0.7));
+  const BX = i => M.l + slot * (i + 0.5), BH = v => (H-M.t-M.b) * v / max;
+  let s = ''; for (let i = 0; i <= 4; i++) { const y = M.t + (H-M.t-M.b)*(1-i/4); s += `<line x1="${M.l}" x2="${W-M.r}" y1="${y}" y2="${y}" stroke="var(${i?'--grid':'--axis'})"/><text x="${M.l-6}" y="${y+4}" text-anchor="end">${nf(max*i/4)}</text>`; }
+  const every = Math.ceil(bins.length / 8);
+  bins.forEach((b, i) => {
+    let y = H - M.b;
+    keys.forEach(k => { const val = b.n[k] || 0; if (!val) return; const h = BH(val);
+      s += `<rect x="${BX(i)-bw/2}" y="${y-h+1}" width="${bw}" height="${Math.max(1,h-2)}" rx="${Math.min(3, bw/3)}" fill="${CAT[k].c}" data-i="${i}" data-k="${k}"/>`; y -= h; });
+    if (i % every === 0) { const d = new Date(b.t); s += `<text x="${BX(i)}" y="${H-8}" text-anchor="middle">${byHour ? pad(d.getHours()) + 'h' : pad(d.getDate()) + '/' + pad(d.getMonth()+1)}</text>`; }
+  });
+  el.innerHTML = `<h4>Eventos críticos por ${byHour ? 'hora' : 'dia'}</h4><div class="legend">${keys.map(k => `<span><i style="background:${CAT[k].c}"></i>${CAT[k].l}</span>`).join('')}</div><svg viewBox="0 0 ${W} ${H}">${s}</svg>`;
+  el.querySelectorAll('rect[data-k]').forEach(r => { r.addEventListener('mousemove', e => { const b = bins[r.dataset.i], d = new Date(b.t);
+    showTip(e, `${pad(d.getDate())}/${pad(d.getMonth()+1)}${byHour ? ' ' + pad(d.getHours()) + 'h' : ''}<br>${CAT[r.dataset.k].l}: <b>${b.n[r.dataset.k]}</b>`); }); r.addEventListener('mouseleave', hideTip); });
+})();
+
+// metricas
+$('#metricnote').textContent = (I.bucket ? `Para períodos longos, cada ponto é o pior valor de ${I.bucket / 60} min (máximo de CPU/commit/paginação/disco, mínimo de RAM livre). ` : `Uma amostra a cada ${I.interval} s. `) +
+  `Linhas tracejadas vermelhas marcam ${OS === 'windows' ? 'quedas do DWM' : 'travamentos da tela'} e eventos críticos. Intervalos sem linha indicam que a máquina estava desligada ou o monitor fechado. Passe o mouse num gráfico para ver o mesmo instante em todos, com os valores e os processos com mais CPU.`;
+const lim = R.length ? R[R.length-1].limit_gb : 0;
+const defs = [
+  ['cpu', 'Uso de CPU (%)', 'Todos os núcleos', {max: 100, unit: '%'}],
+  ['freq', 'Clock efetivo da CPU (MHz)', `Frequência base × % de desempenho${R.length ? ' · base ' + nf(R[0].freq_base) + ' MHz' : ''}`, {unit: 'MHz'}],
+  ['mem_avail', 'RAM disponível (MB)', ram ? `Total físico: ${nf(ram,1)} GB` : '', {unit: 'MB'}],
+  ['commit', 'Memória comprometida (% do limite)', lim ? `Limite: ${nf(lim,1)} GB (${TXT.limit})` : '', {max: 100, unit: '%'}],
+  ['pages', 'Paginação (páginas/s)', 'Páginas lidas e gravadas no disco por segundo; picos coincidem com o lag', {unit: 'pág/s'}],
+  ['disk_busy', 'Disco ocupado (%)', '100 − % de tempo ocioso', {max: 100, unit: '%'}],
+  ['disk_mbs', 'Throughput do disco (MB/s)', 'Leitura + escrita', {unit: 'MB/s'}],
+  ['net_rx', 'Rede: download (Mbit/s)', `Soma das interfaces físicas (${TXT.net})`, {unit: 'Mbit/s'}],
+  ['net_tx', 'Rede: upload (Mbit/s)', `Soma das interfaces físicas (${TXT.net})`, {unit: 'Mbit/s'}],
+].filter(([k]) => !R.length || R.some(r => r[k] >= 0));   // some o que o sistema nao mede (ex.: clock e disco ocupado no macOS)
+for (const [k, t, cap, o] of defs) {
+  const div = document.createElement('div'); div.className = 'card chart'; $('#metrics').appendChild(div);
+  multiLine(div, t, cap, TS, [{name: t, color: 'var(--s1)', v: D.rows.map(r => r[k])}],
+    {...o, fmt: v => nf(v, k === 'disk_mbs' && v < 10 ? 1 : 0), extra: i => D.rows[i].top ? `<br><span style="color:var(--ink2)">top CPU: ${esc(D.rows[i].top)}</span>` : ''});
+}
+
+// tabelas
+const PK = (D.picos || []).slice().reverse();
+const durTxt = s => s < 60 ? nf(s) + ' s' : Math.floor(s / 60) + ' min ' + pad(Math.round(s % 60)) + ' s';
+$('#t-picos').innerHTML = PK.length ? `<table><tr><th>Início</th><th class="num">Duração</th><th class="num">Pico</th><th class="num">Média</th><th>Responsáveis (média · máximo)</th></tr>` + PK.map(p =>
+  `<tr><td class="num">${fmtDT(p.ts)}:${p.ts.slice(17,19)}</td><td class="num">${durTxt(p.dur_s)}</td><td class="num" style="color:${p.pico >= 90 ? 'var(--critical)' : 'inherit'};font-weight:${p.pico >= 90 ? 650 : 400}">${nf(p.pico)}%</td><td class="num">${nf(p.media)}%</td>
+   <td class="msg">${(p.responsaveis || []).filter((c, i) => i < 3 || c[2] >= 5).map(c => `<b>${esc(c[0])}</b>${c[1] ? ' [' + esc(c[1]) + ']' : ''} ${nf(c[2],1)}% · máx ${nf(c[3],1)}%`).join('<br>')}</td></tr>`).join('') + '</table>'
+  : '<p class="empty">Nenhum pico de CPU acima de 70% registrado no período.</p>';
+
+const inc = D.incidents.slice().reverse();
+$('#t-inc').innerHTML = inc.length ? `<table><tr><th>Data/hora</th><th>Evento</th><th>Detalhe e snapshot</th></tr>` + inc.map(e =>
+  `<tr><td class="num">${fmtDT(e.t)}:${e.t.slice(17,19)}</td><td>${tag(e.c)}</td><td class="msg">${esc(e.msg.slice(0, 260))}
+   <details><summary>Processos naquele instante${e.metricas ? ` · commit ${nf(e.metricas.commit)}% · RAM livre ${nf(e.metricas.mem_avail)} MB` : ''}</summary>
+   <table><tr><th>Processo</th><th>PID</th><th class="num">Privada GB</th><th class="num">RAM GB</th><th class="num">CPU %</th></tr>${(e.procs||[]).map(p => `<tr><td>${esc(p[0])}</td><td class="num">${p[1]}</td><td class="num">${nf(p[2],2)}</td><td class="num">${nf(p[3],2)}</td><td class="num">${nf(p[4])}</td></tr>`).join('')}</table></details></td></tr>`).join('') + '</table>'
+  : '<p class="empty">Nenhum incidente capturado pelo monitor no período.</p>';
+
+const act = D.actions.slice().reverse();
+$('#t-act').innerHTML = act.length ? `<table><tr><th>Data/hora</th><th>Tipo</th><th>O quê</th><th>Detalhes</th></tr>` + act.map(a => {
+  const det = Object.entries(a).filter(([k]) => !['ts','tipo','o_que'].includes(k)).map(([k, v]) => `${esc(k)}: ${esc(v)}`).join(' · ');
+  return `<tr><td class="num">${fmtDT(a.ts)}:${a.ts.slice(17,19)}</td><td>${esc(a.tipo)}</td><td>${esc(a.o_que)}</td><td class="msg">${det}</td></tr>`; }).join('') + '</table>'
+  : '<p class="empty">Nenhuma ação ou alerta no período.</p>';
+
+$('#t-all').innerHTML = E.length ? `<table><tr><th>Data/hora</th><th>Tipo</th><th>Origem</th><th>Detalhe</th></tr>` + E.slice().reverse().map(e =>
+  `<tr><td class="num">${fmtDT(e.t)}:${e.t.slice(17,19)}</td><td>${tag(e.c)}</td><td class="msg">${esc(e.prov)} ${e.id}</td><td class="msg">${esc(e.msg.slice(0, 300))}</td></tr>`).join('') + '</table>'
+  : '<p class="empty">Nenhum evento crítico no período.</p>';
+</script>
+</body>
+</html>

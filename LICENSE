@@ -1,0 +1,42 @@
+Monitor de Evidências
+Copyright (c) 2026 Gabriel Alpendre. Todos os direitos reservados.
+
+LICENÇA DE USO PROPRIETÁRIA
+
+Este software, incluindo o código-fonte, os executáveis, a interface, o relatório HTML,
+os scripts de compilação e a documentação (o "Software"), é protegido pela Lei nº 9.609/1998
+(Lei de Software), pela Lei nº 9.610/1998 (Lei de Direitos Autorais) e por tratados
+internacionais de direito autoral.
+
+1. PERMISSÃO DE USO
+   É permitido instalar e executar as versões compiladas do Software, sem custo, apenas
+   para coletar evidências de desempenho nos computadores que você usa.
+
+2. O QUE NÃO É PERMITIDO sem autorização prévia e por escrito do titular:
+   a) copiar, modificar, traduzir ou criar obras derivadas do código-fonte, no todo ou
+      em parte;
+   b) redistribuir, publicar, sublicenciar, vender, alugar ou disponibilizar o Software
+      a terceiros, em forma de código-fonte ou executável;
+   c) remover ou alterar este aviso de direitos autorais, o nome do autor ou o nome
+      do Software;
+   d) apresentar o Software, ou partes dele, como trabalho próprio;
+   e) fazer engenharia reversa, descompilar ou desmontar os executáveis, exceto
+      nos limites expressamente permitidos por lei.
+
+3. COMPONENTES DE TERCEIROS
+   O Software usa componentes de código aberto, que continuam regidos pelas próprias
+   licenças: .NET (MIT), Avalonia (MIT), SkiaSharp e HarfBuzzSharp (MIT) e a fonte Inter
+   (SIL Open Font License 1.1). Esta licença não restringe os direitos que essas licenças
+   concedem sobre os respectivos componentes.
+
+4. AUSÊNCIA DE GARANTIA
+   O Software é fornecido "no estado em que se encontra", sem garantia de qualquer tipo.
+   O autor não se responsabiliza por perdas de dados, trabalho não salvo, indisponibilidade
+   ou outros danos decorrentes do uso, inclusive das funções de encerrar processos e de
+   reiniciar o computador.
+
+5. ENCERRAMENTO
+   O descumprimento de qualquer termo encerra automaticamente esta permissão de uso,
+   sem prejuízo das medidas legais cabíveis.
+
+Pedidos de autorização: Gabriel Alpendre.
