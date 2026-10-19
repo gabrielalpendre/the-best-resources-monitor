@@ -368,7 +368,10 @@ namespace EvidenceMonitor
         // --- instalacao: binario em ~/.local/share/EvidenceMonitor/app, atalho no menu e autostart do XDG ---
         static string ConfigHome { get { var x = Environment.GetEnvironmentVariable("XDG_CONFIG_HOME"); return string.IsNullOrEmpty(x) ? Path.Combine(Paths.Home, ".config") : x; } }
         static string DataHome { get { var x = Environment.GetEnvironmentVariable("XDG_DATA_HOME"); return string.IsNullOrEmpty(x) ? Path.Combine(Paths.Home, ".local", "share") : x; } }
-        public string InstallTarget { get { return Path.Combine(Paths.Root, "app", "evidence-monitor"); } }
+        // pacote .deb: binario em /opt e autostart do sistema em /etc/xdg/autostart
+        const string DebExe = "/opt/evidence-monitor/evidence-monitor", SystemAutostart = "/etc/xdg/autostart/evidence-monitor.desktop";
+        static bool FromDeb { get { return Path.GetFullPath(Paths.Self) == DebExe; } }
+        public string InstallTarget { get { return FromDeb ? DebExe : Path.Combine(Paths.Root, "app", "evidence-monitor"); } }
         static string AutostartFile { get { return Path.Combine(ConfigHome, "autostart", "evidence-monitor.desktop"); } }
         static string MenuFile { get { return Path.Combine(DataHome, "applications", "evidence-monitor.desktop"); } }
 
@@ -389,16 +392,29 @@ namespace EvidenceMonitor
                 File.Copy(Paths.Self, InstallTarget, true);
                 File.SetUnixFileMode(InstallTarget, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute | UnixFileMode.GroupRead | UnixFileMode.GroupExecute | UnixFileMode.OtherRead | UnixFileMode.OtherExecute);
             }
-            try { Directory.CreateDirectory(Path.GetDirectoryName(MenuFile)); File.WriteAllText(MenuFile, Desktop(InstallTarget, false)); } catch { }
+            if (!FromDeb) try { Directory.CreateDirectory(Path.GetDirectoryName(MenuFile)); File.WriteAllText(MenuFile, Desktop(InstallTarget, false)); } catch { }
             SetStartup(true);
         }
 
         public void LaunchInstalled(string args) { UnixCommon.Start(InstallTarget, string.IsNullOrEmpty(args) ? new string[0] : new[] { args }); }
-        public bool StartupEnabled() { return File.Exists(AutostartFile); }
+
+        // o arquivo do usuario tem prioridade sobre o do sistema; "Hidden=true" nele desliga o autostart do pacote
+        public bool StartupEnabled()
+        {
+            if (File.Exists(AutostartFile)) return !(UnixCommon.Read(AutostartFile) ?? "").Contains("Hidden=true");
+            return File.Exists(SystemAutostart);
+        }
+
         public void SetStartup(bool on)
         {
-            if (!on) { try { File.Delete(AutostartFile); } catch { } return; }
             Directory.CreateDirectory(Path.GetDirectoryName(AutostartFile));
+            if (File.Exists(SystemAutostart))
+            {
+                if (on) { try { File.Delete(AutostartFile); } catch { } }
+                else File.WriteAllText(AutostartFile, "[Desktop Entry]\nType=Application\nName=Monitor de Evidências\nHidden=true\n");
+                return;
+            }
+            if (!on) { try { File.Delete(AutostartFile); } catch { } return; }
             File.WriteAllText(AutostartFile, Desktop(File.Exists(InstallTarget) ? InstallTarget : Paths.Self, true));
         }
         public bool IsElevated() { return Environment.IsPrivilegedProcess; }

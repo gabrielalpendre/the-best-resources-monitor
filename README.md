@@ -6,9 +6,17 @@ App de bandeja que coleta evidências de lentidão e travamento no Windows, macO
 
 Baixe o arquivo do seu sistema em [Releases](https://github.com/gabrielalpendre/the-best-resources-monitor/releases/latest).
 
-- **Windows:** abra o `EvidenceMonitor.exe` e responda **Sim**.
-- **macOS:** descompacte o `.zip` e rode `bash install-mac.sh`.
-- **Linux:** `chmod +x EvidenceMonitor-linux-x64 && ./EvidenceMonitor-linux-x64`
+- **Windows:** abra o `EvidenceMonitor.exe` (sem "Executar como administrador") e responda **Sim**.
+- **macOS:** abra o `.dmg` (`arm64` = Apple Silicon, `x64` = Intel) e arraste o app para Aplicativos. O app não tem assinatura da Apple, então antes de abrir pela primeira vez rode:
+  ```
+  xattr -dr com.apple.quarantine /Applications/EvidenceMonitor.app
+  ```
+  Ele abre no login e fica na barra de menus.
+- **Linux (Debian/Ubuntu):**
+  ```
+  sudo apt install ./evidence-monitor_*_amd64.deb
+  ```
+  Ele abre no login (ou pelo menu, "Monitor de Evidências"). No GNOME, o ícone precisa da extensão AppIndicator. Para ver os eventos do kernel, rode `sudo usermod -aG systemd-journal $USER` e entre de novo na sessão.
 
 ## O que faz
 

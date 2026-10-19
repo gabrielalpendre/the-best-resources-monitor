@@ -64,6 +64,12 @@ namespace EvidenceMonitor
                         life.Shutdown(); return;
                     }
                     var P = Plat.I;
+                    // instalado por pacote (.dmg/.deb): liga o inicio com o login so na primeira vez
+                    string firstRun = Path.Combine(Paths.Root, "primeira-execucao");
+                    if (P.IsInstalled() && !File.Exists(firstRun))
+                    {
+                        try { if (!P.StartupEnabled()) P.SetStartup(true); File.WriteAllText(firstRun, Fmt.Ts(DateTime.Now)); } catch { }
+                    }
                     if (!P.IsInstalled() && !P.StartupEnabled() && arg != "--panel")
                     {
                         int r = await Dialog.Ask("Instalar o Monitor de Evidências e iniciar junto com o login?\n\nSim: instala em " + P.InstallTarget + " (sem admin)\nNão: só roda agora",

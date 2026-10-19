@@ -337,8 +337,17 @@ namespace EvidenceMonitor
             return MacNative.Bytes("kern.boottime", b) ? DateTimeOffset.FromUnixTimeSeconds(BitConverter.ToInt64(b, 0)).LocalDateTime : (DateTime?)null;
         }
 
-        // --- instalacao: o .app vai para ~/Applications e um LaunchAgent abre no login ---
-        public string InstallTarget { get { return Path.Combine(Paths.Home, "Applications", "EvidenceMonitor.app"); } }
+        // --- instalacao: .app em /Applications (arrastado do .dmg) ou ~/Applications, e um LaunchAgent abre no login ---
+        static readonly string UserApps = Path.Combine(Paths.Home, "Applications");
+        static bool InAppsDir(string bundle)
+        {
+            var parent = Path.GetDirectoryName(Path.GetFullPath(bundle).TrimEnd('/'));
+            return parent == "/Applications" || parent == UserApps;
+        }
+        public string InstallTarget
+        {
+            get { var b = SelfBundle(); return b != null && InAppsDir(b) ? b : Path.Combine(UserApps, "EvidenceMonitor.app"); }
+        }
         static string Plist { get { return Path.Combine(Paths.Home, "Library", "LaunchAgents", "local.evidencemonitor.plist"); } }
 
         // pasta .app que contem este executavel (ou null se rodando fora de um bundle)
@@ -349,7 +358,7 @@ namespace EvidenceMonitor
             return app != null && app.EndsWith(".app", StringComparison.OrdinalIgnoreCase) ? app : null;
         }
 
-        public bool IsInstalled() { var b = SelfBundle(); return b != null && Path.GetFullPath(b).TrimEnd('/') == Path.GetFullPath(InstallTarget).TrimEnd('/'); }
+        public bool IsInstalled() { var b = SelfBundle(); return b != null && InAppsDir(b); }
 
         static void CopyDir(string src, string dst)
         {

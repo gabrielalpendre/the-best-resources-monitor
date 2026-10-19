@@ -1,5 +1,3 @@
-# Compila Windows, Linux e macOS e publica uma Release com os executaveis.
-# Dispara ao enviar uma tag de versao:  git tag v2.0.1 && git push origin v2.0.1
 name: release
 
 on:
@@ -8,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Tag da release (ex.: v2.0.1). Vazio = so compila, sem publicar.'
+        description: 'Tag da release (ex.: v2.0.1). Vazio = so compila.'
         required: false
 
 permissions:
@@ -24,7 +22,6 @@ jobs:
             targets: win-x64
           - os: ubuntu-latest
             targets: linux-x64
-          # macOS no runner da Apple: o .app sai assinado (ad-hoc) pelo codesign
           - os: macos-latest
             targets: osx-arm64 osx-x64
     runs-on: ${{ matrix.os }}
@@ -35,7 +32,7 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
-      - name: Versao a partir da tag
+      - name: Versao
         shell: bash
         run: |
           v="${TAG#v}"
