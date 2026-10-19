@@ -6,10 +6,12 @@ cd "$(dirname "$0")"
 export DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_NOLOGO=1
 TARGETS=${*:-"win-x64 linux-x64 osx-arm64 osx-x64"}
 mkdir -p dist
+# versao vinda da tag (CI) ou a do .csproj
+EXTRA=(); [ -n "${VERSION:-}" ] && EXTRA=("-p:Version=$VERSION")
 for rid in $TARGETS; do
   echo "== $rid"
   rm -rf "out/$rid"
-  dotnet publish src/EvidenceMonitor.csproj -c Release -r "$rid" -o "out/$rid" -v q
+  dotnet publish src/EvidenceMonitor.csproj -c Release -r "$rid" -o "out/$rid" -v q ${EXTRA[@]+"${EXTRA[@]}"}
   case "$rid" in
     win-*) cp "out/$rid/EvidenceMonitor.exe" dist/EvidenceMonitor.exe ;;
     linux-*) cp "out/$rid/EvidenceMonitor" "dist/EvidenceMonitor-$rid"; chmod +x "dist/EvidenceMonitor-$rid" ;;
@@ -17,7 +19,7 @@ for rid in $TARGETS; do
       arch=${rid#osx-}; stage="out/mac-$arch"; app="$stage/EvidenceMonitor.app"
       rm -rf "$stage"; mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
       cp -R "out/$rid/." "$app/Contents/MacOS/"
-      cp packaging/Info.plist "$app/Contents/Info.plist"
+      sed "s|<string>2.0.0</string>|<string>${VERSION:-2.0.0}</string>|g" packaging/Info.plist > "$app/Contents/Info.plist"
       cp packaging/install-mac.sh "$stage/"; chmod +x "$stage/install-mac.sh" "$app/Contents/MacOS/EvidenceMonitor"
       if command -v codesign >/dev/null; then codesign --force --deep --sign - "$app"; fi
       rm -f "dist/EvidenceMonitor-macos-$arch.zip"

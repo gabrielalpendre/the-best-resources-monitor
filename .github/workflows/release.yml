@@ -1,0 +1,77 @@
+# Compila Windows, Linux e macOS e publica uma Release com os executaveis.
+# Dispara ao enviar uma tag de versao:  git tag v2.0.1 && git push origin v2.0.1
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag da release (ex.: v2.0.1). Vazio = so compila, sem publicar.'
+        required: false
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - os: windows-latest
+            targets: win-x64
+          - os: ubuntu-latest
+            targets: linux-x64
+          # macOS no runner da Apple: o .app sai assinado (ad-hoc) pelo codesign
+          - os: macos-latest
+            targets: osx-arm64 osx-x64
+    runs-on: ${{ matrix.os }}
+    env:
+      TAG: ${{ github.event.inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Versao a partir da tag
+        shell: bash
+        run: |
+          v="${TAG#v}"
+          [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || v="0.0.0-dev"
+          echo "VERSION=$v" >> "$GITHUB_ENV"
+      - name: Compilar (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./build.ps1 -Targets ${{ matrix.targets }}
+      - name: Compilar (Linux/macOS)
+        if: runner.os != 'Windows'
+        run: bash build.sh ${{ matrix.targets }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ runner.os }}
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v') || github.event.inputs.tag != ''
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ github.event.inputs.tag || github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Checksums
+        run: cd dist && sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt
+      - name: Publicar release
+        run: |
+          gh release create "$TAG" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "Monitor de Evidências $TAG" \
+            --generate-notes

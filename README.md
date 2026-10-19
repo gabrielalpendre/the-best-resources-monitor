@@ -5,7 +5,9 @@ A interface e os sensores são os mesmos nos três: um executável autocontido p
 
 ## Instalar
 
-| Sistema | Arquivo em `dist/` | Como |
+Baixe o arquivo do seu sistema na página de [Releases](https://github.com/gabrielalpendre/the-best-resources-monitor/releases/latest). Para conferir a integridade do download, use o `SHA256SUMS.txt` da mesma release.
+
+| Sistema | Arquivo | Como |
 |---|---|---|
 | Windows 10/11 x64 | `EvidenceMonitor.exe` | Duplo-clique, **sem** "Executar como administrador", e responda **Sim**. Instala em `%LOCALAPPDATA%\Programs\EvidenceMonitor` e inicia com o login (`HKCU\...\Run`). |
 | macOS 12+ (Apple Silicon) | `EvidenceMonitor-macos-arm64.zip` | Descompacte e rode `bash install-mac.sh` no Terminal (sem sudo). Instala em `~/Applications` e inicia com o login (LaunchAgent). |
@@ -84,6 +86,17 @@ O formato é o mesmo da versão 1, então o histórico continua.
 ## Licença
 
 Software proprietário: © 2026 Gabriel Alpendre, todos os direitos reservados. O uso é permitido; copiar, modificar ou redistribuir exige autorização. Os termos completos estão em [LICENSE](LICENSE).
+
+## Publicar uma versão
+
+Envie uma tag de versão e o GitHub Actions compila nos três sistemas (o macOS num runner da Apple, já assinado) e cria a Release com os executáveis e os checksums:
+
+```
+git tag v2.0.1
+git push origin v2.0.1
+```
+
+A versão do executável vem da tag. O workflow fica em `.github/workflows/release.yml`.
 
 ## Compilar
 
