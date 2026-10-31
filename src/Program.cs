@@ -110,7 +110,7 @@ namespace EvidenceMonitor
             base.OnFrameworkInitializationCompleted();
         }
 
-        // --snapshot <saida.png> [ciclos] [aba] [filtro] [hover: segundos atras] -> renderiza o painel e salva (para testes)
+        // --snapshot <saida.png> [ciclos] [aba|overlay] [filtro] [hover: segundos atras] -> renderiza o painel e salva (para testes)
         static async void Snapshot(IClassicDesktopStyleApplicationLifetime life)
         {
             string outp = Args.Length > 1 ? Args[1] : "panel.png";
@@ -119,6 +119,14 @@ namespace EvidenceMonitor
                 await System.Threading.Tasks.Task.Run(() => History.LoadInitial());
                 var smp = new Sampler(); List<ProcInfo> procs = null; Dictionary<string, object> row = null;
                 for (int i = 0; i < 3; i++) { row = smp.Sample(out procs); History.Add(row, procs); await System.Threading.Tasks.Task.Delay(2000); }
+                if (Args.Length > 3 && Args[3] == "overlay")
+                {
+                    var ov = new OverlayWindow { ShowInTaskbar = false };
+                    ov.Show(); ov.UpdateData(row);
+                    await System.Threading.Tasks.Task.Delay(500);
+                    using (var ob = new RenderTargetBitmap(new PixelSize((int)ov.Bounds.Width, (int)ov.Bounds.Height), new Vector(96, 96))) { ob.Render(ov); ob.Save(outp); }
+                    ov.Close(); life.Shutdown(); return;
+                }
                 var form = new PanelWindow { WindowStartupLocation = WindowStartupLocation.Manual, Position = new PixelPoint(-20000, -20000), ShowInTaskbar = false };
                 form.Show();
                 int loops = Args.Length > 2 ? int.Parse(Args[2]) : 1;

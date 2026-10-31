@@ -42,6 +42,7 @@ namespace EvidenceMonitor
         public Action<string> KillAllRequested;
         public Action<int> ReportRequested;
         public Action FolderRequested, WslRequested, DockerRequested, RebootRequested;
+        public Func<MenuFlyout> MenuRequested;
 
         public void AddSpike(Dictionary<string, object> row) { spikes.AddLive(row); }
         public void AddEvent(Dictionary<string, object> ev) { events.AddLive(ev); }
@@ -72,12 +73,26 @@ namespace EvidenceMonitor
             top.Children.Add(summary);
             StyleRange();
 
+            // ☰ no canto direito: o mesmo menu do botao direito no icone da bandeja
+            var menuBtn = new Button
+            {
+                Padding = new Thickness(8, 5), Margin = new Thickness(4, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center,
+                Background = Pal.BSurface, BorderBrush = Pal.BAxis, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(4),
+                Content = new Avalonia.Controls.Shapes.Path
+                {
+                    Data = Geometry.Parse("M0,1 H16 M0,6 H16 M0,11 H16"), Stroke = Pal.BInk, StrokeThickness = 1.8,
+                    StrokeLineCap = PenLineCap.Round, Width = 16, Height = 12
+                }
+            };
+            ToolTip.SetTip(menuBtn, "Menu (o mesmo do ícone na bandeja)");
+            menuBtn.Click += (s, e) => { var f = MenuRequested?.Invoke(); if (f != null) { f.Placement = PlacementMode.BottomEdgeAlignedRight; f.ShowAt(menuBtn); } };
             // ficha do computador (lida em segundo plano: WMI e system_profiler podem levar alguns segundos)
             var hwBar = new DockPanel { Margin = new Thickness(14, 8, 14, 8) };
             hwBar.Children.Add(Pal.Label("Lendo informações do computador...", Pal.BMuted, 11.5));
             var hwHead = new DockPanel { Margin = new Thickness(14, 8, 10, 8) };
             var fullBtn = Pal.Btn("Ficha completa", () => Dialog.Text("Ficha do computador", Hw.Text(), this, 820, 440));
             fullBtn.FontSize = 11.5; fullBtn.Padding = new Thickness(10, 3);
+            DockPanel.SetDock(menuBtn, Dock.Right); hwHead.Children.Add(menuBtn);
             DockPanel.SetDock(fullBtn, Dock.Right); hwHead.Children.Add(fullBtn);
             hwHead.Children.Add(new TextBlock { Text = "Este computador", FontSize = 13, FontWeight = FontWeight.SemiBold, Foreground = Pal.BInk, VerticalAlignment = VerticalAlignment.Center });
             var hwBody = new DockPanel();

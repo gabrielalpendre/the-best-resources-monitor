@@ -18,11 +18,14 @@ namespace EvidenceMonitor
     {
         readonly TrayIcon tray = new TrayIcon();
         readonly NativeMenu menu = new NativeMenu();
-        readonly NativeMenuItem startup, cancelReboot;
+        readonly NativeMenuItem startup, cancelReboot, overlayItem, openItem;
+        // acao de cada item: usada tambem pelo menu ☰ do painel (NativeMenuItem nao deixa disparar o Click de fora)
+        readonly Dictionary<NativeMenuItem, Action> actions = new Dictionary<NativeMenuItem, Action>();
         readonly Sampler sampler = new Sampler();
         readonly SpikeProbe probe = new SpikeProbe();
         readonly IPlatform P = Plat.I;
         PanelWindow panel;
+        OverlayWindow overlay;
         readonly Timer timer;
         IDisposable watcher;
         Dictionary<string, object> lastRow;
@@ -35,12 +38,16 @@ namespace EvidenceMonitor
 
         static void Log(string kind, string what, Dictionary<string, object> extra) { ActionLog.Log(kind, what, extra); }
 
-        static NativeMenuItem Item(string text, Action a) { var m = new NativeMenuItem(text); m.Click += (s, e) => a(); return m; }
+        NativeMenuItem Item(string text, Action a) { var m = new NativeMenuItem(text); m.Click += (s, e) => a(); actions[m] = a; return m; }
 
         public TrayApp(bool openPanel, Action quit)
         {
             this.quit = quit;
-            menu.Items.Add(Item("Abrir painel", ShowPanel));
+            openItem = Item("Abrir painel", ShowPanel);
+            menu.Items.Add(openItem);
+            overlayItem = Item("Mini monitor sobreposto", ToggleOverlay);
+            overlayItem.ToggleType = NativeMenuItemToggleType.CheckBox;
+            menu.Items.Add(overlayItem);
             menu.Items.Add(Item("Gerar relatório (24h)", () => MakeReport(24)));
             menu.Items.Add(Item("Gerar relatório (7 dias)", () => MakeReport(168)));
             menu.Items.Add(Item("Abrir pasta de evidências", OpenFolder));
@@ -52,8 +59,8 @@ namespace EvidenceMonitor
             menu.Items.Add(Item("Reiniciar " + P.RebootWord + " (forçado)...", () => RebootNow("menu")));
             cancelReboot = Item("Cancelar reinício", CancelReboot);
             menu.Items.Add(new NativeMenuItemSeparator());
-            startup = new NativeMenuItem("Iniciar com o login") { ToggleType = NativeMenuItemToggleType.CheckBox, IsChecked = P.StartupEnabled() };
-            startup.Click += (s, e) => ToggleStartup();
+            startup = Item("Iniciar com o login", ToggleStartup);
+            startup.ToggleType = NativeMenuItemToggleType.CheckBox; startup.IsChecked = P.StartupEnabled();
             menu.Items.Add(startup);
             menu.Items.Add(Item("Sair", Quit));
 
@@ -102,6 +109,7 @@ namespace EvidenceMonitor
             SetIcon(lv);
             tray.ToolTipText = Program.Summary(row);
             panel?.UpdateData(row, procs);
+            overlay?.UpdateData(row);
 
             var top = procs.OrderByDescending(p => p.Priv).FirstOrDefault();
             double leakGb = Math.Max(8, ramGb * 0.25);
@@ -180,18 +188,55 @@ namespace EvidenceMonitor
                     WslRequested = WslShutdown,
                     DockerRequested = RestartDocker,
                     RebootRequested = () => RebootNow("painel"),
-                    KillAllRequested = name => ConfirmKillAll(name)
+                    KillAllRequested = name => ConfirmKillAll(name),
+                    MenuRequested = BuildFlyout
                 };
                 panel.Closed += (s, e) =>
                 {
                     panel = null;
-                    timer.Change(Program.IntervalSec * 1000, Program.IntervalSec * 1000);
+                    UpdateRate();
                     GC.Collect();
                 };
                 timer.Change(0, Program.PanelMs);
             }
             panel.Show(); panel.WindowState = WindowState.Normal; panel.Activate();
             if (lastRow != null) panel.UpdateData(lastRow, lastProcs);
+        }
+
+        // Amostragem rapida enquanto o painel ou o mini monitor estiver aberto
+        void UpdateRate()
+        {
+            int ms = panel != null || overlay != null ? Program.PanelMs : Program.IntervalSec * 1000;
+            timer.Change(ms, ms);
+        }
+
+        void ToggleOverlay()
+        {
+            if (overlay != null) { overlay.Close(); return; }
+            overlay = new OverlayWindow { OpenPanelRequested = ShowPanel };
+            overlay.CloseRequested = () => overlay?.Close();
+            overlay.Closed += (s, e) => { overlay = null; overlayItem.IsChecked = false; UpdateRate(); };
+            overlay.Show();
+            overlayItem.IsChecked = true;
+            if (lastRow != null) overlay.UpdateData(lastRow);
+            timer.Change(0, Program.PanelMs);
+        }
+
+        // Mesmo menu do icone da bandeja, para o botao ☰ do painel (montado na hora: reflete marcacoes e "Cancelar reinicio")
+        MenuFlyout BuildFlyout()
+        {
+            var f = new MenuFlyout();
+            foreach (var it in menu.Items)
+            {
+                if (it is NativeMenuItemSeparator) { f.Items.Add(new Separator()); continue; }
+                var n = it as NativeMenuItem; Action a;
+                if (n == null || n == openItem || !actions.TryGetValue(n, out a)) continue;
+                var m = new MenuItem { Header = n.Header };
+                if (n.ToggleType == NativeMenuItemToggleType.CheckBox) { m.ToggleType = MenuItemToggleType.CheckBox; m.IsChecked = n.IsChecked; }
+                m.Click += (s, e) => a();
+                f.Items.Add(m);
+            }
+            return f;
         }
 
         void KillTop()
@@ -383,6 +428,7 @@ namespace EvidenceMonitor
             Log("app", "encerrado pelo usuário", null);
             probe.Stop();
             timer.Dispose();
+            overlay?.Close();
             try { watcher?.Dispose(); } catch { }
             tray.IsVisible = false; tray.Dispose();
             quit();
