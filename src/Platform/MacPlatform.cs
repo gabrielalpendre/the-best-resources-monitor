@@ -100,8 +100,21 @@ namespace EvidenceMonitor
             return true;
         }
 
+        // uso da GPU pelo IOAccelerator (sem root): "Device Utilization %" e memoria em uso
+        static void ReadGpu(Dictionary<string, object> row)
+        {
+            string o; Proc.Run("/usr/sbin/ioreg", new[] { "-r", "-d", "1", "-w", "0", "-c", "IOAccelerator" }, out o, 5000);
+            var u = Regex.Matches(o ?? "", "\"Device Utilization %\"=(\\d+)").Cast<Match>().Select(m => double.Parse(m.Groups[1].Value)).ToList();
+            var mem = Regex.Matches(o ?? "", "\"(?:In use system memory|vramUsedBytes)\"=(\\d+)").Cast<Match>().Select(m => double.Parse(m.Groups[1].Value)).ToList();
+            if (u.Count > 0) row["gpu"] = Math.Min(100, u.Max());
+            if (mem.Count > 0) row["gpu_mem"] = Math.Round(mem.Sum() / 1073741824.0, 2);
+        }
+        public string GpuHint { get { return "O macOS não informou o uso da GPU"; } }
+        public List<OptItem> Optimizations() { return MacOptimize.Items(); }
+
         public void ReadSystem(Dictionary<string, object> row)
         {
+            try { ReadGpu(row); } catch { }
             var now = DateTime.Now;
             double el = prevAt == DateTime.MinValue ? 0 : (now - prevAt).TotalSeconds;
             long idle, total;
@@ -335,6 +348,70 @@ namespace EvidenceMonitor
         {
             var b = new byte[16];
             return MacNative.Bytes("kern.boottime", b) ? DateTimeOffset.FromUnixTimeSeconds(BitConverter.ToInt64(b, 0)).LocalDateTime : (DateTime?)null;
+        }
+
+        // primeiro valor de texto da chave num JSON do system_profiler (as chaves nao mudam com o idioma)
+        static string JStr(string json, string key) { var m = Regex.Match(json ?? "", "\"" + key + "\"\\s*:\\s*\"([^\"]*)\""); return m.Success ? m.Groups[1].Value : ""; }
+
+        public List<KeyValuePair<string, string>> Hardware()
+        {
+            var l = new List<KeyValuePair<string, string>>();
+            Action<string, string> add = (k, v) => l.Add(new KeyValuePair<string, string>(k, v ?? ""));
+            string sp; Proc.Run("/usr/sbin/system_profiler", new[] { "-json", "SPHardwareDataType", "SPMemoryDataType", "SPDisplaysDataType" }, out sp, 30000);
+
+            // processador: no Apple Silicon ha niveis de desempenho (perflevel0) e eficiencia (perflevel1)
+            long phys = MacNative.Long("hw.physicalcpu"), logical = MacNative.Long("hw.logicalcpu"), p0 = MacNative.Long("hw.perflevel0.physicalcpu"), p1 = MacNative.Long("hw.perflevel1.physicalcpu");
+            long hz = MacNative.Long("hw.cpufrequency_max");
+            add(Hw.Cpu, CpuName());
+            string cores = Hw.CoresText((int)phys, (int)logical, hz > 0 ? hz / 1e6 : 0);
+            if (p0 > 0 && p1 > 0) cores += " (" + p0 + " de desempenho + " + p1 + " de eficiência)";
+            add(Hw.Cores, cores);
+
+            double l2 = 0, l3 = Math.Max(0, MacNative.Long("hw.l3cachesize"));
+            if (p0 > 0)
+                for (int i = 0; i < 2; i++)
+                {
+                    long sz = MacNative.Long("hw.perflevel" + i + ".l2cachesize"), n = MacNative.Long("hw.perflevel" + i + ".physicalcpu"), per = MacNative.Long("hw.perflevel" + i + ".cpusperl2");
+                    if (sz > 0 && n > 0) l2 += sz * (per > 0 ? (n + per - 1) / per : 1);   // um L2 por cluster
+                }
+            else { long sz = MacNative.Long("hw.l2cachesize"); if (sz > 0) l2 = sz * Math.Max(1, phys); }   // Intel: L2 por nucleo
+            add(Hw.Cache, Hw.CacheText(l2, l3));
+
+            // memoria: no Apple Silicon e unificada (sem pentes); no Intel o system_profiler lista os slots
+            var mods = new List<MemModule>(); int slots = 0;
+            foreach (Match m in Regex.Matches(sp ?? "", "\\{[^{}]*\"dimm_size\"[^{}]*\\}"))
+            {
+                slots++;
+                var sz = Regex.Match(JStr(m.Value, "dimm_size"), @"(\d+)\s*GB");
+                var spd = Regex.Match(JStr(m.Value, "dimm_speed"), @"(\d+)");
+                if (sz.Success) mods.Add(new MemModule { Size = double.Parse(sz.Groups[1].Value) * 1073741824, Type = JStr(m.Value, "dimm_type"), Speed = spd.Success ? int.Parse(spd.Groups[1].Value) : 0, Slot = JStr(m.Value, "_name"), Maker = JStr(m.Value, "dimm_manufacturer"), Part = JStr(m.Value, "dimm_part_number") });
+            }
+            double total = MacNative.Long("hw.memsize");
+            string mem = Hw.MemText(total, mods, slots);
+            if (mods.Count == 0) { string t = JStr(sp, "dimm_type"); if (!Hw.Junk(t)) mem += " " + t + " unificada"; string mk = JStr(sp, "dimm_manufacturer"); if (!Hw.Junk(mk)) mem += " · " + mk; }
+            add(Hw.Mem, mem);
+            add(Hw.Modules, Hw.ModulesText(mods));
+
+            // GPU: integrada ao chip (Apple Silicon) ou placa separada (Intel)
+            var gpu = Regex.Match(sp ?? "", "\"SPDisplaysDataType\"\\s*:\\s*\\[(.*)", RegexOptions.Singleline);
+            string gs = gpu.Success ? gpu.Groups[1].Value : "";
+            string gcores = JStr(gs, "sppci_cores"), vram = JStr(gs, "spdisplays_vram");
+            if (vram.Length == 0) vram = JStr(gs, "_spdisplays_vram");
+            add(Hw.Gpu, Hw.Join(JStr(gs, "sppci_model")) + (gcores.Length > 0 ? " · " + gcores + " núcleos de GPU" : "") + (vram.Length > 0 ? " · " + vram : ""));
+
+            // Mac nao tem placa-mae com nome proprio: modelo + identificador + numero de serie
+            add(Hw.Computer, Hw.Join(JStr(sp, "machine_name"), JStr(sp, "machine_model").Length > 0 ? "(" + JStr(sp, "machine_model") + ")" : Model(), JStr(sp, "model_number")));
+            add(Hw.Bios, JStr(sp, "boot_rom_version"));
+            add(Hw.Serial, JStr(sp, "serial_number"));
+
+            // disco interno
+            string pl; Proc.Run("/usr/sbin/diskutil", new[] { "info", "-plist", "disk0" }, out pl, 15000);
+            var name = Regex.Match(pl ?? "", @"<key>MediaName</key>\s*<string>([^<]*)</string>");
+            var size = Regex.Match(pl ?? "", @"<key>(?:TotalSize|Size)</key>\s*<integer>(\d+)</integer>");
+            bool ssd = Regex.IsMatch(pl ?? "", @"<key>SolidState</key>\s*<true/>");
+            if (name.Success || size.Success)
+                add(Hw.Disks, (name.Success ? name.Groups[1].Value.Trim() : "disk0") + " (" + (size.Success ? Hw.Dec(double.Parse(size.Groups[1].Value)) + ", " : "") + (ssd ? "SSD" : "HD") + ")");
+            return l;
         }
 
         // --- instalacao: .app em /Applications (arrastado do .dmg) ou ~/Applications, e um LaunchAgent abre no login ---

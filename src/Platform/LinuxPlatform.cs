@@ -121,6 +121,7 @@ namespace EvidenceMonitor
             }
             row["freq"] = Math.Round(Mhz(), 0);
             row["freq_base"] = Math.Round(BaseMhz(), 0);
+            try { LinuxGpu.Read(row); } catch { }
 
             var mi = KeyVals("/proc/meminfo", ':');
             long kb(string k) { long v; return mi.TryGetValue(k, out v) ? v : 0; }
@@ -363,6 +364,103 @@ namespace EvidenceMonitor
         {
             var m = Regex.Match(UnixCommon.Read("/proc/stat") ?? "", @"^btime (\d+)", RegexOptions.Multiline);
             return m.Success ? DateTimeOffset.FromUnixTimeSeconds(long.Parse(m.Groups[1].Value)).LocalDateTime : (DateTime?)null;
+        }
+
+        public string GpuHint { get { return LinuxGpu.Unavailable(); } }
+        public List<OptItem> Optimizations() { return LinuxOptimize.Items(); }
+
+        static string Dmi(string f) { return UnixCommon.ReadLine("/sys/class/dmi/id/" + f); }
+
+        public List<KeyValuePair<string, string>> Hardware()
+        {
+            var l = new List<KeyValuePair<string, string>>();
+            Action<string, string> add = (k, v) => l.Add(new KeyValuePair<string, string>(k, v ?? ""));
+
+            // processador: nucleos fisicos = pares (physical id, core id) distintos
+            string ci = UnixCommon.Read("/proc/cpuinfo") ?? "";
+            var blocks = ci.Split(new[] { "\n\n" }, StringSplitOptions.RemoveEmptyEntries).Where(b => b.Contains("processor")).ToList();
+            Func<string, string, string> field = (b, k) => { var m = Regex.Match(b, "^" + k + @"\s*:\s*(.*)$", RegexOptions.Multiline); return m.Success ? m.Groups[1].Value.Trim() : ""; };
+            var cores = blocks.Select(b => field(b, "physical id") + "/" + field(b, "core id")).Where(x => x != "/").Distinct().Count();
+            int sockets = blocks.Select(b => field(b, "physical id")).Where(x => x != "").Distinct().Count();
+            double maxMhz = 0; long khz; if (long.TryParse(UnixCommon.ReadLine("/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq"), out khz)) maxMhz = khz / 1000.0;
+            add(Hw.Cpu, CpuName());
+            add(Hw.Cores, Hw.CoresText(cores, blocks.Count > 0 ? blocks.Count : Environment.ProcessorCount, maxMhz, sockets));
+
+            // cache: soma cada cache uma vez (os nucleos que a compartilham aparecem no shared_cpu_list)
+            double l2 = 0, l3 = 0; var seenCache = new HashSet<string>();
+            try
+            {
+                foreach (var cpu in Directory.GetDirectories("/sys/devices/system/cpu").Where(d => Regex.IsMatch(Path.GetFileName(d), @"^cpu\d+$")))
+                {
+                    string cd = Path.Combine(cpu, "cache"); if (!Directory.Exists(cd)) continue;
+                    foreach (var idx in Directory.GetDirectories(cd, "index*"))
+                    {
+                        string lv = UnixCommon.ReadLine(Path.Combine(idx, "level")), sz = UnixCommon.ReadLine(Path.Combine(idx, "size")) ?? "";
+                        if (!seenCache.Add(lv + "|" + UnixCommon.ReadLine(Path.Combine(idx, "type")) + "|" + UnixCommon.ReadLine(Path.Combine(idx, "shared_cpu_list")))) continue;
+                        var m = Regex.Match(sz, @"^(\d+)([KMG]?)$"); if (!m.Success) continue;
+                        double b = double.Parse(m.Groups[1].Value) * (m.Groups[2].Value == "K" ? 1024 : m.Groups[2].Value == "M" ? 1048576 : m.Groups[2].Value == "G" ? 1073741824 : 1);
+                        if (lv == "2") l2 += b; else if (lv == "3") l3 += b;
+                    }
+                }
+            }
+            catch { }
+            add(Hw.Cache, Hw.CacheText(l2, l3));
+
+            // memoria: total do kernel + pentes que o udev le da SMBIOS no boot (/run/udev/data e legivel sem root)
+            var mt = Regex.Match(UnixCommon.Read("/proc/meminfo") ?? "", @"^MemTotal:\s*(\d+)", RegexOptions.Multiline);
+            double total = mt.Success ? double.Parse(mt.Groups[1].Value) * 1024 : 0;
+            var mods = new SortedDictionary<int, MemModule>(); var slots = new HashSet<int>();
+            foreach (var line in (UnixCommon.Read("/run/udev/data/+dmi:id") ?? "").Split('\n'))
+            {
+                var m = Regex.Match(line, @"^E:MEMORY_DEVICE_(\d+)_([A-Z_]+)=(.*)$"); if (!m.Success) continue;
+                int n = int.Parse(m.Groups[1].Value); string k = m.Groups[2].Value, v = m.Groups[3].Value.Trim();
+                slots.Add(n);
+                MemModule mm; if (!mods.TryGetValue(n, out mm)) mods[n] = mm = new MemModule();
+                double d; int i;
+                switch (k)
+                {
+                    case "SIZE": if (double.TryParse(v, out d)) mm.Size = d; break;
+                    case "TYPE": mm.Type = v; break;
+                    case "CONFIGURED_SPEED_MTS": if (int.TryParse(v, out i)) mm.Speed = i; break;
+                    case "SPEED_MTS": if (mm.Speed == 0 && int.TryParse(v, out i)) mm.Speed = i; break;
+                    case "LOCATOR": mm.Slot = v; break;
+                    case "MANUFACTURER": mm.Maker = Regex.IsMatch(v, "^[0-9A-F]{4}$") ? "" : v; break;   // codigo JEDEC cru nao ajuda
+                    case "PART_NUMBER": mm.Part = v; break;
+                }
+            }
+            add(Hw.Mem, Hw.MemText(total, mods.Values.ToList(), slots.Count));
+            add(Hw.Modules, Hw.ModulesText(mods.Values.ToList()));
+            add(Hw.Gpu, LinuxGpu.Describe());
+
+            // placa-mae, computador, firmware
+            string board = Hw.Join(Dmi("board_vendor"), Dmi("board_name"), Dmi("board_version"));
+            string comp = Hw.Join(Dmi("sys_vendor"), Dmi("product_name"), Dmi("product_version"));
+            add(Hw.Board, board);
+            if (Hw.Join(Dmi("product_name")) != Hw.Join(Dmi("board_name"))) add(Hw.Computer, comp);
+            add(Hw.Bios, Hw.Join(Dmi("bios_vendor"), Dmi("bios_version")) + (Hw.Junk(Dmi("bios_date")) ? "" : " de " + Dmi("bios_date")));
+
+            // numero de serie: o kernel so deixa o root ler
+            string ps = Dmi("product_serial"), bs = Dmi("board_serial");
+            if (ps == null && bs == null) { add(Hw.Serial, "só o root pode ler"); add("Ver número de série", "sudo cat /sys/class/dmi/id/product_serial"); }
+            else { add(Hw.Serial, ps); add(Hw.BoardSerial, bs != ps ? bs : ""); }
+
+            // discos fisicos (sem loop, zram, mapeadores e removiveis)
+            var disks = new List<string>();
+            try
+            {
+                foreach (var dev in Directory.GetDirectories("/sys/block").OrderBy(x => x))
+                {
+                    string n = Path.GetFileName(dev);
+                    if (Regex.IsMatch(n, @"^(loop|ram|zram|dm-|md|sr|fd|nbd)") || UnixCommon.ReadLine(Path.Combine(dev, "removable")) == "1") continue;
+                    long sectors; if (!long.TryParse(UnixCommon.ReadLine(Path.Combine(dev, "size")), out sectors) || sectors == 0) continue;
+                    string model = Hw.Join(UnixCommon.ReadLine(Path.Combine(dev, "device", "vendor")), UnixCommon.ReadLine(Path.Combine(dev, "device", "model"))).Replace('_', ' ');
+                    string kind = n.StartsWith("nvme") ? "SSD NVMe" : UnixCommon.ReadLine(Path.Combine(dev, "queue", "rotational")) == "0" ? "SSD" : "HD";
+                    disks.Add((model.Length > 0 ? model : n) + " (" + Hw.Dec(sectors * 512.0) + ", " + kind + ")");
+                }
+            }
+            catch { }
+            add(Hw.Disks, string.Join(" · ", disks));
+            return l;
         }
 
         // --- instalacao: binario em ~/.local/share/EvidenceMonitor/app, atalho no menu e autostart do XDG ---

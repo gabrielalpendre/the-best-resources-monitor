@@ -16,21 +16,29 @@ Baixe o arquivo do seu sistema em [Releases](https://github.com/gabrielalpendre/
   ```
   sudo apt install ./evidence-monitor_*_amd64.deb
   ```
-  Ele abre no login (ou pelo menu, "Monitor de Evidências"). No GNOME, o ícone precisa da extensão AppIndicator. Para ver os eventos do kernel, rode `sudo usermod -aG systemd-journal $USER` e entre de novo na sessão.
+- **Linux (Fedora/RHEL):**
+  ```
+  sudo dnf install ./evidence-monitor-*.x86_64.rpm
+  ```
+- No Linux, ele abre no login (ou pelo menu, "Monitor de Evidências"). No GNOME, o ícone precisa da extensão AppIndicator. Para ver os eventos do kernel, rode `sudo usermod -aG systemd-journal $USER` e entre de novo na sessão.
 
 ## O que faz
 
-- Gráficos ao vivo de CPU, memória, disco, rede e do processo selecionado. Ao passar o mouse num gráfico, a mesma hora aparece marcada em todos.
+- Ficha do computador (processador, núcleos, cache, memória e pentes, placa de vídeo, placa-mãe, BIOS, número de série e discos) no painel e no relatório.
+- Gráficos ao vivo de CPU, GPU, memória, disco, rede e do processo selecionado. Ao passar o mouse num gráfico, a mesma hora aparece marcada em todos.
 - Lista de processos colorida por consumo, com encerrar processo e o comando pronto para admin quando falta permissão.
+- Aba **Otimização** com ajustes consagrados e reversíveis de cada sistema: perfil de energia, recursos de jogos e gráficos, serviços sem uso e apps que abrem no login. O que é do usuário o app aplica direto; o que precisa de admin vira um comando pronto para o terminal.
 - Picos de CPU medidos a cada 1 s, eventos de crash, travamento e falta de memória, e relatório HTML de 24 h ou 7 dias.
 
 ## Publicar versão
 
-```
-git tag v2.0.1 && git push origin v2.0.1
-```
+Todo push na `main` gera a próxima versão (`v2.0.2` → `v2.0.3`): o GitHub Actions compila os três sistemas, cria a tag e publica a release. Mudanças só no README ou na LICENSE não geram versão.
 
-O GitHub Actions compila os três sistemas e cria a release.
+Para escolher o número (ex.: subir para `v2.1.0`), crie a tag você mesmo:
+
+```
+git tag v2.1.0 && git push origin v2.1.0
+```
 
 ## Licença
 

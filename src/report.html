@@ -66,6 +66,10 @@ details summary { cursor: pointer; color: var(--ink2); font-size: 12px; }
 #tip { position: fixed; pointer-events: none; background: var(--surface); color: var(--ink); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; font-size: 12.5px; box-shadow: 0 4px 16px rgba(0,0,0,.15); display: none; z-index: 10; max-width: 340px; }
 .warnbox { border-left: 4px solid var(--warning); padding: 10px 14px; background: var(--surface); border-radius: 6px; font-size: 13.5px; }
 .empty { color: var(--muted); font-size: 13px; padding: 12px 0; }
+.hw { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 5px 18px; margin: 0; font-size: 13.5px; }
+.hw dt { color: var(--ink2); }
+.hw dd { margin: 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+@media (max-width: 520px) { .hw { grid-template-columns: 1fr; gap: 0; } .hw dd { margin-bottom: 8px; } }
 code { font-size: 12.5px; background: var(--grid); padding: 1px 5px; border-radius: 4px; }
 @media print { #tip { display: none !important; } .scroll { max-height: none; } }
 </style>
@@ -76,6 +80,9 @@ code { font-size: 12.5px; background: var(--grid); padding: 1px 5px; border-radi
   <p class="sub" id="subtitle"></p>
   <div class="verdict" id="verdict"></div>
   <div class="tiles" id="tiles"></div>
+
+  <h2>Computador analisado</h2>
+  <dl class="card hw" id="hw"></dl>
 
   <h2>1. Memória dos maiores processos ao longo do tempo</h2>
   <p class="note" id="privnote">Memória privada comprometida (inclui a parte que foi para o pagefile) dos 5 processos que mais consumiram no período. Uma linha que só sobe e não volta indica vazamento de memória.</p>
@@ -157,6 +164,11 @@ const xLabel = t => { const d = new Date(t); return span ? `${pad(d.getDate())}/
 $('#host').textContent = I.host;
 $('#subtitle').textContent = [I.model, I.cpu, I.os, I.boot ? `ligado desde ${fmtDT(I.boot)}` : '', `período ${fmtDT(I.from)} a ${fmtDT(I.to)}`].filter(Boolean).join(' · ');
 $('#gen').textContent = fmtDT(I.to);
+// ficha do computador (relatorios antigos nao tem I.hw: a secao mostra o que o cabecalho ja dizia)
+{
+  const hw = (I.hw && I.hw.length) ? I.hw : [['Computador', I.model], ['Processador', I.cpu], ['Sistema', I.os]].filter(x => x[1]);
+  $('#hw').innerHTML = hw.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('');
+}
 
 // resumo
 const cnt = {}; E.forEach(e => cnt[e.c] = (cnt[e.c] || 0) + 1);
@@ -307,13 +319,15 @@ const defs = [
   ['pages', 'Paginação (páginas/s)', 'Páginas lidas e gravadas no disco por segundo; picos coincidem com o lag', {unit: 'pág/s'}],
   ['disk_busy', 'Disco ocupado (%)', '100 − % de tempo ocioso', {max: 100, unit: '%'}],
   ['disk_mbs', 'Throughput do disco (MB/s)', 'Leitura + escrita', {unit: 'MB/s'}],
+  ['gpu', 'Uso da GPU (%)', (I.hw || []).filter(x => x[0] === 'Placa de vídeo').map(x => x[1])[0] || 'Placa de vídeo mais ocupada', {max: 100, unit: '%'}],
+  ['gpu_mem', 'Memória da GPU em uso (GB)', R.length && R[R.length-1].gpu_mem_total > 0 ? `Total: ${nf(R[R.length-1].gpu_mem_total,1)} GB` : '', {unit: 'GB'}],
   ['net_rx', 'Rede: download (Mbit/s)', `Soma das interfaces físicas (${TXT.net})`, {unit: 'Mbit/s'}],
   ['net_tx', 'Rede: upload (Mbit/s)', `Soma das interfaces físicas (${TXT.net})`, {unit: 'Mbit/s'}],
 ].filter(([k]) => !R.length || R.some(r => r[k] >= 0));   // some o que o sistema nao mede (ex.: clock e disco ocupado no macOS)
 for (const [k, t, cap, o] of defs) {
   const div = document.createElement('div'); div.className = 'card chart'; $('#metrics').appendChild(div);
   multiLine(div, t, cap, TS, [{name: t, color: 'var(--s1)', v: D.rows.map(r => r[k])}],
-    {...o, fmt: v => nf(v, k === 'disk_mbs' && v < 10 ? 1 : 0), extra: i => D.rows[i].top ? `<br><span style="color:var(--ink2)">top CPU: ${esc(D.rows[i].top)}</span>` : ''});
+    {...o, fmt: v => nf(v, (k === 'disk_mbs' || k === 'gpu_mem') && v < 10 ? 1 : 0), extra: i => D.rows[i].top ? `<br><span style="color:var(--ink2)">top CPU: ${esc(D.rows[i].top)}</span>` : ''});
 }
 
 // tabelas

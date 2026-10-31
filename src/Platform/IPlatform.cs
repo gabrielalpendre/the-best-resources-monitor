@@ -48,6 +48,12 @@ namespace EvidenceMonitor
 
         // Informacoes para o cabecalho do relatorio
         string Model(); string CpuName(); string OsVersion(); DateTime? BootTime();
+        // Ficha do computador como pares rotulo -> valor (rotulos em Hw.*); valores vazios sao descartados
+        List<KeyValuePair<string, string>> Hardware();
+        // por que o uso da GPU nao aparece (quando ReadSystem devolve gpu = -1)
+        string GpuHint { get; }
+        // Ajustes de otimizacao consagrados e reversiveis deste sistema (aba Otimizacao)
+        List<OptItem> Optimizations();
 
         // Instalacao e inicializacao com o login
         string InstallTarget { get; }      // onde o app fica instalado (.exe, binario ou .app)

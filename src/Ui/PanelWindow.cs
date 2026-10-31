@@ -3,12 +3,15 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using System.Threading;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Documents;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia.Threading;
 
 namespace EvidenceMonitor
 {
@@ -22,7 +25,7 @@ namespace EvidenceMonitor
         readonly CheckBox group = new CheckBox { Content = "Agrupar por aplicativo", FontSize = 12.5, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(6, 0, 10, 0) };
         readonly TextBlock selInfo = new TextBlock { Foreground = Pal.BSeries, FontWeight = FontWeight.SemiBold, FontSize = 12.5, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 12, 0) };
         bool userSelected;
-        readonly MiniChart cCpu, cFreq, cAvail, cCommit, cPages, cDisk, cNetRx, cNetTx, cProcMem, cProcCpu;
+        readonly MiniChart cCpu, cFreq, cAvail, cCommit, cPages, cDisk, cNetRx, cNetTx, cProcMem, cProcCpu, cGpu, cGpuMem;
         readonly List<Button> rangeBtns = new List<Button>();
         readonly HoverSync hover = new HoverSync();
         int rangeMin = 60;
@@ -33,6 +36,7 @@ namespace EvidenceMonitor
         readonly TabControl tabs;
         readonly EventsView events;
         readonly SpikesView spikes;
+        readonly OptimizeView optimize;
 
         public Action<int, string> KillRequested;
         public Action<string> KillAllRequested;
@@ -68,8 +72,13 @@ namespace EvidenceMonitor
             top.Children.Add(summary);
             StyleRange();
 
-            // graficos (5 x 2)
-            var charts = new UniformGrid { Columns = 5, Rows = 2, Margin = new Thickness(6, 2, 6, 2) };
+            // ficha do computador (lida em segundo plano: WMI e system_profiler podem levar alguns segundos)
+            var hwBar = new WrapPanel { Margin = new Thickness(12, 0, 12, 4) };
+            hwBar.Children.Add(Pal.Label("Lendo informações do computador...", Pal.BMuted, 11.5));
+            ThreadPool.QueueUserWorkItem(_ => { var hw = Hw.Get(); Dispatcher.UIThread.Post(() => FillHardware(hwBar, hw)); });
+
+            // graficos (6 x 2)
+            var charts = new UniformGrid { Columns = 6, Rows = 2, Margin = new Thickness(6, 2, 6, 2) };
             cCpu = Chart("CPU", "%", 100, 70, 90, false, "N0");
             cFreq = Chart("Clock efetivo", "MHz", -1, double.NaN, double.NaN, false, "N0");
             if (P.Os == "macos") cFreq.Unavailable = "O macOS não expõe o clock efetivo sem privilégio de administrador";
@@ -81,8 +90,10 @@ namespace EvidenceMonitor
             cNetTx = Chart("Rede · upload", "Mbit/s", -1, double.NaN, double.NaN, false, "N1");
             cProcMem = Chart("Memória do processo", "GB", -1, double.NaN, double.NaN, false, "N2");
             cProcCpu = Chart("CPU do processo", "%", -1, Limits.ProcCpuWarn, Limits.ProcCpuCrit, false, "N1");
+            cGpu = Chart("GPU", "%", 100, double.NaN, double.NaN, false, "N0");
+            cGpuMem = Chart("Memória da GPU", "GB", -1, double.NaN, double.NaN, false, "N2");
             cProcMem.Accent = true; cProcCpu.Accent = true;
-            foreach (var c in new[] { cCpu, cFreq, cAvail, cCommit, cNetRx, cPages, cDisk, cNetTx, cProcMem, cProcCpu }) { c.Margin = new Thickness(4); c.Sync = hover; charts.Children.Add(c); }
+            foreach (var c in new[] { cCpu, cFreq, cAvail, cCommit, cGpu, cNetRx, cPages, cDisk, cGpuMem, cNetTx, cProcMem, cProcCpu }) { c.Margin = new Thickness(4); c.Sync = hover; charts.Children.Add(c); }
 
             // processos
             var procBar = new DockPanel { Margin = new Thickness(8, 6, 8, 6) };
@@ -128,11 +139,13 @@ namespace EvidenceMonitor
 
             events = new EventsView();
             spikes = new SpikesView();
+            optimize = new OptimizeView();
             tabs = new TabControl { Margin = new Thickness(6, 0, 6, 0), Padding = new Thickness(0) };
             tabs.Items.Add(Tab("Processos", procPanel));
             tabs.Items.Add(Tab("Eventos (crash, travamentos, memória)", events));
             tabs.Items.Add(Tab("Picos de CPU", spikes));
-            tabs.SelectionChanged += (s, e) => { if (tabs.SelectedIndex == 1) events.EnsureLoaded(); if (tabs.SelectedIndex == 2) spikes.Reload(); };
+            tabs.Items.Add(Tab("Otimização", optimize));
+            tabs.SelectionChanged += (s, e) => { if (tabs.SelectedIndex == 1) events.EnsureLoaded(); if (tabs.SelectedIndex == 2) spikes.Reload(); if (tabs.SelectedIndex == 3) optimize.EnsureLoaded(); };
 
             // acoes
             var bar = new DockPanel { Margin = new Thickness(8, 6, 8, 8) };
@@ -144,13 +157,31 @@ namespace EvidenceMonitor
             bar.Children.Add(Docked(Pal.Btn("Reiniciar " + P.RebootWord, () => RebootRequested?.Invoke(), Pal.BCrit)));
             bar.Children.Add(new TextBlock { Text = "Tracejado vermelho nos gráficos = " + char.ToLower(P.CatLabels["dwm"][0]) + P.CatLabels["dwm"].Substring(1) + ",memória esgotada ou evento crítico. Passe o mouse num gráfico para ver o mesmo instante em todos.", Foreground = Pal.BMuted, FontSize = 11.5, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12, 0, 0, 0), TextWrapping = TextWrapping.Wrap });
 
-            var grid = new Grid { RowDefinitions = new RowDefinitions("Auto,52*,6,48*,Auto") };
-            Grid.SetRow(top, 0); Grid.SetRow(charts, 1);
+            var grid = new Grid { RowDefinitions = new RowDefinitions("Auto,Auto,52*,6,48*,Auto") };
+            Grid.SetRow(top, 0); Grid.SetRow(hwBar, 1); Grid.SetRow(charts, 2);
             var splitter = new GridSplitter { Background = Brushes.Transparent, ResizeDirection = GridResizeDirection.Rows };
-            Grid.SetRow(splitter, 2); Grid.SetRow(tabs, 3); Grid.SetRow(bar, 4);
-            grid.Children.Add(top); grid.Children.Add(charts); grid.Children.Add(splitter); grid.Children.Add(tabs); grid.Children.Add(bar);
+            Grid.SetRow(splitter, 3); Grid.SetRow(tabs, 4); Grid.SetRow(bar, 5);
+            grid.Children.Add(top); grid.Children.Add(hwBar); grid.Children.Add(charts); grid.Children.Add(splitter); grid.Children.Add(tabs); grid.Children.Add(bar);
             Content = grid;
             UpdateHeaders();
+        }
+
+        // "Processador: Intel Core i5-10400 · Núcleos: 6 núcleos · 12 threads · ..." + botao com a ficha completa
+        void FillHardware(WrapPanel bar, List<KeyValuePair<string, string>> hw)
+        {
+            bar.Children.Clear();
+            foreach (var key in Hw.Summary)
+            {
+                var kv = hw.FirstOrDefault(x => x.Key == key); if (kv.Key == null) continue;
+                var t = new TextBlock { FontSize = 11.5, Margin = new Thickness(0, 2, 16, 2), MaxWidth = 460, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center };
+                t.Inlines.Add(new Run(kv.Key + ": ") { Foreground = Pal.BMuted });
+                t.Inlines.Add(new Run(kv.Value) { Foreground = Pal.BInk, FontWeight = FontWeight.SemiBold });
+                ToolTip.SetTip(t, kv.Key + ": " + kv.Value);
+                bar.Children.Add(t);
+            }
+            var b = Pal.Btn("Ficha completa", () => Dialog.Text("Ficha do computador", Hw.Text(), this, 820, 440));
+            b.FontSize = 11.5; b.Padding = new Thickness(8, 1); b.VerticalAlignment = VerticalAlignment.Center;
+            bar.Children.Add(b);
         }
 
         static Control Docked(Control c) { DockPanel.SetDock(c, Dock.Left); return c; }
@@ -215,6 +246,11 @@ namespace EvidenceMonitor
             if (!IsVisible) return;
             lastProcs = procs;
             double ram = Fmt.D(row, "ram_gb"); if (ram > 0) ramBytes = ram * 1073741824.0;
+            string gpuHint = null; try { gpuHint = Plat.I.GpuHint; } catch { }
+            cGpu.Unavailable = Fmt.D(row, "gpu") < 0 ? gpuHint : null;
+            cGpuMem.Unavailable = Fmt.D(row, "gpu_mem") < 0 ? gpuHint : null;
+            double vram = Fmt.D(row, "gpu_mem_total");
+            if (vram > 0) { cGpuMem.FixedMax = vram; cGpuMem.Warn = vram * 0.85; cGpuMem.Crit = vram * 0.95; }
             var ag = procs.Where(p => p.Agent != null).ToList();
             summary.Text = "Atualizado às " + Fmt.S(row, "ts").Substring(11) + " · " + procs.Count + " processos" +
                 (ag.Count > 0 ? " · agentes corporativos: CPU " + Fmt.N(ag.Sum(p => p.Cpu), 1) + "% · " + Fmt.N(ag.Sum(p => p.Priv) / 1048576.0, 0) + " MB (" +
@@ -257,6 +293,8 @@ namespace EvidenceMonitor
             cDisk.SetData(S(p => mac ? p.DiskMbs : p.Disk), marks, from, to, null);
             cNetRx.SetData(S(p => p.NetRx), marks, from, to, null);
             cNetTx.SetData(S(p => p.NetTx), marks, from, to, null);
+            cGpu.SetData(S(p => p.Gpu), marks, from, to, null);
+            cGpuMem.SetData(S(p => p.GpuMem), marks, from, to, null);
             RefreshProcCharts();
         }
 

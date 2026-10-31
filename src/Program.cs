@@ -111,6 +111,7 @@ namespace EvidenceMonitor
                 if (Args.Length > 4 && Args[4].Length > 0) form.SetFilter(Args[4]);
                 if (Args.Length > 3 && Args[3] == "eventos") { form.SelectTab(1); await System.Threading.Tasks.Task.Delay(6000); }
                 if (Args.Length > 3 && Args[3] == "cpu") { form.SelectTab(2); await System.Threading.Tasks.Task.Delay(4000); }
+                if (Args.Length > 3 && Args[3] == "otimizacao") { form.SelectTab(3); await System.Threading.Tasks.Task.Delay(8000); }
                 int ago; if (Args.Length > 5 && int.TryParse(Args[5], out ago)) form.SimulateHover(DateTime.Now.AddSeconds(-ago));
                 await System.Threading.Tasks.Task.Delay(500);
                 var size = new PixelSize((int)form.Bounds.Width, (int)form.Bounds.Height);
@@ -189,6 +190,7 @@ namespace EvidenceMonitor
                 row["_events_24h"] = Plat.I.ReadEvents(DateTime.Now.AddHours(-24)).Count;
                 row["_events_hint"] = Plat.I.EventsHint;
                 row["_info"] = Plat.I.Model() + " | " + Plat.I.CpuName() + " | " + Plat.I.OsVersion() + " | boot " + Plat.I.BootTime();
+                row["_hw"] = Hw.Get().Select(kv => kv.Key + ": " + kv.Value).ToArray();
                 string json = Json.Serialize(row);
                 if (args.Length > 1) File.WriteAllText(args[1], json); else Console.WriteLine(json);
                 return 0;

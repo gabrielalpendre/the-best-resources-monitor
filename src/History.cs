@@ -18,7 +18,7 @@ namespace EvidenceMonitor
         }
     }
 
-    class Pt { public DateTime T; public double Cpu, Freq, Avail, Commit, Pages, Disk, DiskMbs, NetRx, NetTx; }
+    class Pt { public DateTime T; public double Cpu, Freq, Avail, Commit, Pages, Disk, DiskMbs, NetRx, NetTx, Gpu, GpuMem; }
 
     static class History
     {
@@ -34,7 +34,8 @@ namespace EvidenceMonitor
             {
                 T = Fmt.ParseTs(r["ts"]),
                 Cpu = Fmt.D(r, "cpu"), Freq = Fmt.D(r, "freq"), Avail = Fmt.D(r, "mem_avail"), Commit = Fmt.D(r, "commit"),
-                Pages = Fmt.D(r, "pages"), Disk = Fmt.D(r, "disk_busy"), DiskMbs = Fmt.D(r, "disk_mbs"), NetRx = Fmt.D(r, "net_rx"), NetTx = Fmt.D(r, "net_tx")
+                Pages = Fmt.D(r, "pages"), Disk = Fmt.D(r, "disk_busy"), DiskMbs = Fmt.D(r, "disk_mbs"), NetRx = Fmt.D(r, "net_rx"), NetTx = Fmt.D(r, "net_tx"),
+                Gpu = r.ContainsKey("gpu") ? Fmt.D(r, "gpu") : -1, GpuMem = r.ContainsKey("gpu_mem") ? Fmt.D(r, "gpu_mem") : -1
             };
         }
 

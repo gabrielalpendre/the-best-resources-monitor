@@ -1,8 +1,13 @@
 name: release
 
+# push na main  -> calcula a proxima versao (vX.Y.Z+1), compila e publica a release com a tag nova
+# push de tag v* -> compila e publica a release dessa tag
+# manual         -> com tag: publica essa tag; vazio: so compila
 on:
   push:
+    branches: [main]
     tags: ['v*']
+    paths-ignore: ['README.md', 'LICENSE', '.gitignore', '.gitattributes']
   workflow_dispatch:
     inputs:
       tag:
@@ -12,8 +17,39 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.v.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: v
+        name: Definir tag
+        run: |
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            tag="${{ github.ref_name }}"
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            tag="${{ github.event.inputs.tag }}"
+          elif git tag --points-at HEAD | grep -q '^v'; then
+            tag=""   # commit ja tem tag manual: a release sai pelo workflow da tag
+          else
+            last=$(git tag -l 'v*' --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1)
+            last=${last:-v0.0.0}
+            IFS=. read -r major minor patch <<< "${last#v}"
+            tag="v$major.$minor.$((patch + 1))"
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "Tag: ${tag:-(nenhuma, so compila)}"
+
   build:
+    needs: version
     strategy:
       fail-fast: true
       matrix:
@@ -26,7 +62,7 @@ jobs:
             targets: osx-arm64 osx-x64
     runs-on: ${{ matrix.os }}
     env:
-      TAG: ${{ github.event.inputs.tag || github.ref_name }}
+      TAG: ${{ needs.version.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
@@ -42,6 +78,9 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: ./build.ps1 -Targets ${{ matrix.targets }}
+      - name: Ferramentas de pacote (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -q && sudo apt-get install -y -q rpm
       - name: Compilar (Linux/macOS)
         if: runner.os != 'Windows'
         run: bash build.sh ${{ matrix.targets }}
@@ -52,11 +91,11 @@ jobs:
           if-no-files-found: error
 
   release:
-    needs: build
-    if: startsWith(github.ref, 'refs/tags/v') || github.event.inputs.tag != ''
+    needs: [version, build]
+    if: needs.version.outputs.tag != ''
     runs-on: ubuntu-latest
     env:
-      TAG: ${{ github.event.inputs.tag || github.ref_name }}
+      TAG: ${{ needs.version.outputs.tag }}
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/download-artifact@v4
@@ -66,6 +105,7 @@ jobs:
       - name: Checksums
         run: cd dist && sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt
       - name: Publicar release
+        # cria a tag no commit compilado se ela ainda nao existir (so depois do build dar certo)
         run: |
           gh release create "$TAG" dist/* \
             --repo "$GITHUB_REPOSITORY" \

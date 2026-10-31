@@ -316,7 +316,7 @@ namespace EvidenceMonitor
             var now = DateTime.Now;
             var row = new Dictionary<string, object>();
             row["ts"] = Fmt.Ts(now);
-            foreach (var k in new[] { "cpu", "freq_base", "freq", "mem_avail", "commit", "pages", "disk_busy", "disk_mbs", "disk_q" }) row[k] = -1.0;
+            foreach (var k in new[] { "cpu", "freq_base", "freq", "mem_avail", "commit", "pages", "disk_busy", "disk_mbs", "disk_q", "gpu", "gpu_mem", "gpu_mem_total" }) row[k] = -1.0;
             try { Plat.I.ReadSystem(row); } catch { }
             var net = Net();
             row["net_rx"] = net[0] >= 0 ? R(net[0], 2) : -1;
@@ -462,14 +462,14 @@ namespace EvidenceMonitor
                     flush();
                     acc = new Dictionary<string, object>();
                     acc["ts"] = r["ts"];
-                    foreach (var k in new[] { "cpu", "freq", "freq_base", "mem_avail", "commit", "commit_gb", "limit_gb", "ram_gb", "pages", "disk_busy", "disk_mbs", "net_rx", "net_tx" }) acc[k] = Fmt.D(r, k);
+                    foreach (var k in new[] { "cpu", "freq", "freq_base", "mem_avail", "commit", "commit_gb", "limit_gb", "ram_gb", "pages", "disk_busy", "disk_mbs", "net_rx", "net_tx", "gpu", "gpu_mem", "gpu_mem_total" }) acc[k] = Fmt.D(r, k);
                     acc["top"] = cpuTop;
                     accProc = pm; accKey = key; accN = 1;
                 }
                 else
                 {
                     accN++;
-                    foreach (var k in new[] { "cpu", "commit", "commit_gb", "pages", "disk_busy", "disk_mbs", "net_rx", "net_tx" }) acc[k] = Math.Max(Fmt.D(acc, k), Fmt.D(r, k));
+                    foreach (var k in new[] { "cpu", "commit", "commit_gb", "pages", "disk_busy", "disk_mbs", "net_rx", "net_tx", "gpu", "gpu_mem" }) acc[k] = Math.Max(Fmt.D(acc, k), Fmt.D(r, k));
                     acc["mem_avail"] = Math.Min(Fmt.D(acc, "mem_avail"), Fmt.D(r, "mem_avail"));
                     acc["freq"] = Fmt.D(acc, "freq") + Fmt.D(r, "freq");
                     if (Fmt.D(r, "cpu") >= Fmt.D(acc, "cpu")) acc["top"] = cpuTop;
@@ -488,6 +488,7 @@ namespace EvidenceMonitor
             info["model"] = Safe(P.Model);
             info["cpu"] = Safe(P.CpuName);
             info["os"] = Safe(P.OsVersion);
+            try { info["hw"] = Hw.Get().Select(kv => new object[] { kv.Key, kv.Value }).ToList(); } catch { info["hw"] = new List<object[]>(); }
             DateTime? boot = null; try { boot = P.BootTime(); } catch { }
             info["boot"] = boot.HasValue ? Fmt.Ts(boot.Value) : "";
             info["from"] = Fmt.Ts(from);

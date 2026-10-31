@@ -23,6 +23,7 @@ namespace EvidenceMonitor
         [DllImport("pdh.dll", CharSet = CharSet.Unicode, EntryPoint = "PdhAddEnglishCounterW")] public static extern uint PdhAddEnglishCounter(IntPtr q, string path, IntPtr user, out IntPtr c);
         [DllImport("pdh.dll")] public static extern uint PdhCollectQueryData(IntPtr q);
         [DllImport("pdh.dll")] public static extern uint PdhGetFormattedCounterValue(IntPtr c, uint fmt, IntPtr type, out PDH_FMT_COUNTERVALUE v);
+        [DllImport("pdh.dll", CharSet = CharSet.Unicode, EntryPoint = "PdhGetFormattedCounterArrayW")] public static extern uint PdhGetFormattedCounterArray(IntPtr c, uint fmt, ref uint bufSize, out uint count, IntPtr items);
         [DllImport("kernel32.dll")] public static extern bool GetSystemTimes(out long idle, out long kernel, out long user);
 
         [StructLayout(LayoutKind.Sequential)]
@@ -75,6 +76,8 @@ namespace EvidenceMonitor
             Add("disk_idle", @"\PhysicalDisk(_Total)\% Idle Time");
             Add("disk_bps", @"\PhysicalDisk(_Total)\Disk Bytes/sec");
             Add("disk_q", @"\PhysicalDisk(_Total)\Current Disk Queue Length");
+            Add("gpu_eng", @"\GPU Engine(*)\Utilization Percentage");          // um por processo x motor da GPU
+            Add("gpu_mem", @"\GPU Adapter Memory(*)\Dedicated Usage");         // bytes por placa
             WinNative.PdhCollectQueryData(query);
         }
 
@@ -92,6 +95,76 @@ namespace EvidenceMonitor
             if (WinNative.PdhGetFormattedCounterValue(c, 0x200 | 0x8000, IntPtr.Zero, out v) != 0) return -1;
             return v.doubleValue;
         }
+
+        // contador com curinga: valor de cada instancia
+        List<KeyValuePair<string, double>> GetAll(string key)
+        {
+            var l = new List<KeyValuePair<string, double>>();
+            IntPtr c; if (!counters.TryGetValue(key, out c)) return l;
+            uint size = 0, n;
+            WinNative.PdhGetFormattedCounterArray(c, 0x200 | 0x8000, ref size, out n, IntPtr.Zero);
+            if (size == 0) return l;
+            IntPtr buf = Marshal.AllocHGlobal((int)size);
+            try
+            {
+                if (WinNative.PdhGetFormattedCounterArray(c, 0x200 | 0x8000, ref size, out n, buf) != 0) return l;
+                int stride = IntPtr.Size + 16;   // PDH_FMT_COUNTERVALUE_ITEM: nome + {status, pad, double}
+                for (int i = 0; i < n; i++)
+                {
+                    IntPtr p = buf + i * stride;
+                    if (Marshal.ReadInt32(p, IntPtr.Size) != 0) continue;
+                    l.Add(new KeyValuePair<string, double>(Marshal.PtrToStringUni(Marshal.ReadIntPtr(p)) ?? "", BitConverter.Int64BitsToDouble(Marshal.ReadInt64(p, IntPtr.Size + 8))));
+                }
+            }
+            finally { Marshal.FreeHGlobal(buf); }
+            return l;
+        }
+
+        // como o Gerenciador de Tarefas: soma por placa e tipo de motor (3D, video, copia...) e fica com o maior
+        void ReadGpu(Dictionary<string, object> row)
+        {
+            var eng = GetAll("gpu_eng");
+            if (eng.Count > 0)
+                row["gpu"] = R(Math.Min(100, eng.GroupBy(kv => { var m = Regex.Match(kv.Key, @"(luid_\w+?)_phys.*?(engtype_.*)$"); return m.Success ? m.Groups[1].Value + m.Groups[2].Value : kv.Key; })
+                                              .Max(g => g.Sum(kv => kv.Value))), 0);
+            var mem = GetAll("gpu_mem");
+            if (mem.Count > 0) row["gpu_mem"] = R(mem.Max(kv => kv.Value) / 1073741824.0, 2);
+            double total = GpuVram();
+            if (total > 0) row["gpu_mem_total"] = R(total / 1073741824.0, 1);
+        }
+
+        // placas de video pelo registro (nome do driver e memoria dedicada real; o WMI trava em 4 GB)
+        static List<KeyValuePair<string, double>> gpus;
+        static List<KeyValuePair<string, double>> Gpus()
+        {
+            if (gpus != null) return gpus;
+            var l = new List<KeyValuePair<string, double>>();
+            try
+            {
+                using (var cls = Registry.LocalMachine.OpenSubKey(@"SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}"))
+                    if (cls != null)
+                        foreach (var sub in cls.GetSubKeyNames().Where(x => Regex.IsMatch(x, @"^\d{4}$")))
+                            try
+                            {
+                                using (var k = cls.OpenSubKey(sub))
+                                {
+                                    var name = k == null ? null : k.GetValue("DriverDesc") as string;
+                                    if (string.IsNullOrEmpty(name) || Regex.IsMatch(name, "Basic Display|Basic Render|Remote|Virtual|Indirect|Parsec|Hyper-V", RegexOptions.IgnoreCase)) continue;
+                                    object m = k.GetValue("HardwareInformation.qwMemorySize") ?? k.GetValue("HardwareInformation.MemorySize");
+                                    var b = m as byte[];
+                                    double vram = m is long ? (long)m : m is int ? (uint)(int)m : b != null && b.Length >= 8 ? BitConverter.ToInt64(b, 0) : b != null && b.Length >= 4 ? BitConverter.ToUInt32(b, 0) : 0;
+                                    if (!l.Any(x => x.Key == name)) l.Add(new KeyValuePair<string, double>(name, vram));
+                                }
+                            }
+                            catch { }
+            }
+            catch { }
+            if (l.Count == 0) foreach (var v in WmiAll("Win32_VideoController", "Name, AdapterRAM")) l.Add(new KeyValuePair<string, double>(WS(v, "Name"), WD(v, "AdapterRAM")));
+            return gpus = l;
+        }
+        static double GpuVram() { return Gpus().Select(g => g.Value).DefaultIfEmpty(0).Max(); }
+        public string GpuHint { get { return "O Windows não expôs os contadores de desempenho da GPU"; } }
+        public List<OptItem> Optimizations() { return WindowsOptimize.Items(); }
 
         static double R(double v, int d) { return Math.Round(v, d); }
 
@@ -112,6 +185,7 @@ namespace EvidenceMonitor
                 double bps = Get("disk_bps");
                 row["disk_mbs"] = bps >= 0 ? R(bps / 1048576.0, 1) : -1;
                 row["disk_q"] = R(Get("disk_q"), 0);
+                try { ReadGpu(row); } catch { }
             }
             WinNative.PERFORMANCE_INFORMATION pi;
             if (WinNative.GetPerformanceInfo(out pi, (uint)Marshal.SizeOf(typeof(WinNative.PERFORMANCE_INFORMATION))))
@@ -281,6 +355,77 @@ namespace EvidenceMonitor
         public string CpuName() { return Wmi("Win32_Processor", "Name"); }
         public string OsVersion() { return Wmi("Win32_OperatingSystem", "Caption") + " build " + Wmi("Win32_OperatingSystem", "BuildNumber"); }
         public DateTime? BootTime() { try { return ManagementDateTimeConverter.ToDateTime(Wmi("Win32_OperatingSystem", "LastBootUpTime")); } catch { return null; } }
+
+        // todas as instancias de uma classe WMI (cada uma como dicionario propriedade -> valor)
+        static List<Dictionary<string, object>> WmiAll(string cls, string props, string scope = null)
+        {
+            var l = new List<Dictionary<string, object>>();
+            try
+            {
+                using (var s = scope == null ? new ManagementObjectSearcher("SELECT " + props + " FROM " + cls) : new ManagementObjectSearcher(scope, "SELECT " + props + " FROM " + cls))
+                    foreach (ManagementObject o in s.Get())
+                    {
+                        var d = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
+                        foreach (PropertyData p in o.Properties) d[p.Name] = p.Value;
+                        l.Add(d);
+                    }
+            }
+            catch { }
+            return l;
+        }
+        static string WS(Dictionary<string, object> d, string k) { object v; return d.TryGetValue(k, out v) && v != null ? Convert.ToString(v, CultureInfo.InvariantCulture).Trim() : ""; }
+        static double WD(Dictionary<string, object> d, string k) { double x; return double.TryParse(WS(d, k), NumberStyles.Any, CultureInfo.InvariantCulture, out x) ? x : 0; }
+
+        public List<KeyValuePair<string, string>> Hardware()
+        {
+            var l = new List<KeyValuePair<string, string>>();
+            Action<string, string> add = (k, v) => l.Add(new KeyValuePair<string, string>(k, v ?? ""));
+
+            var cpus = WmiAll("Win32_Processor", "Name, NumberOfCores, NumberOfLogicalProcessors, MaxClockSpeed, L2CacheSize, L3CacheSize");
+            add(Hw.Cpu, cpus.Count > 0 ? WS(cpus[0], "Name") : "");
+            add(Hw.Cores, Hw.CoresText((int)cpus.Sum(c => WD(c, "NumberOfCores")), (int)cpus.Sum(c => WD(c, "NumberOfLogicalProcessors")), cpus.Count > 0 ? WD(cpus[0], "MaxClockSpeed") : 0, cpus.Count));
+            add(Hw.Cache, Hw.CacheText(cpus.Sum(c => WD(c, "L2CacheSize")) * 1024, cpus.Sum(c => WD(c, "L3CacheSize")) * 1024));
+
+            var mods = WmiAll("Win32_PhysicalMemory", "Capacity, ConfiguredClockSpeed, Speed, SMBIOSMemoryType, Manufacturer, PartNumber, DeviceLocator")
+                .Select(m => new MemModule
+                {
+                    Size = WD(m, "Capacity"), Type = Hw.SmbiosType((int)WD(m, "SMBIOSMemoryType")),
+                    Speed = (int)(WD(m, "ConfiguredClockSpeed") > 0 ? WD(m, "ConfiguredClockSpeed") : WD(m, "Speed")),
+                    Slot = WS(m, "DeviceLocator"), Maker = WS(m, "Manufacturer"), Part = WS(m, "PartNumber")
+                }).ToList();
+            int slots = (int)WmiAll("Win32_PhysicalMemoryArray", "MemoryDevices, Use").Where(a => WD(a, "Use") == 3 || WD(a, "Use") == 0).Sum(a => WD(a, "MemoryDevices"));
+            double total = 0; try { total = WD(WmiAll("Win32_ComputerSystem", "TotalPhysicalMemory").FirstOrDefault() ?? new Dictionary<string, object>(), "TotalPhysicalMemory"); } catch { }
+            add(Hw.Mem, Hw.MemText(total, mods, slots));
+            add(Hw.Modules, Hw.ModulesText(mods));
+            add(Hw.Gpu, string.Join(" + ", Gpus().Select(g => g.Key + (g.Value > 0 ? " · " + Hw.Bin(g.Value) : ""))));
+
+            var bb = WmiAll("Win32_BaseBoard", "Manufacturer, Product, Version, SerialNumber").FirstOrDefault() ?? new Dictionary<string, object>();
+            var cs = WmiAll("Win32_ComputerSystem", "Manufacturer, Model").FirstOrDefault() ?? new Dictionary<string, object>();
+            var bios = WmiAll("Win32_BIOS", "Manufacturer, SMBIOSBIOSVersion, ReleaseDate, SerialNumber").FirstOrDefault() ?? new Dictionary<string, object>();
+            add(Hw.Board, Hw.Join(WS(bb, "Manufacturer"), WS(bb, "Product"), WS(bb, "Version")));
+            if (!string.Equals(WS(cs, "Model"), WS(bb, "Product"), StringComparison.OrdinalIgnoreCase)) add(Hw.Computer, Hw.Join(WS(cs, "Manufacturer"), WS(cs, "Model")));
+            string date = ""; try { if (WS(bios, "ReleaseDate").Length > 0) date = " de " + ManagementDateTimeConverter.ToDateTime(WS(bios, "ReleaseDate")).ToString("dd/MM/yyyy", CultureInfo.InvariantCulture); } catch { }
+            add(Hw.Bios, Hw.Join(WS(bios, "Manufacturer"), WS(bios, "SMBIOSBIOSVersion")) + date);
+            string serial = WS(bios, "SerialNumber"), bserial = WS(bb, "SerialNumber");
+            add(Hw.Serial, serial);
+            add(Hw.BoardSerial, bserial != serial ? bserial : "");
+
+            // discos: MSFT_PhysicalDisk diz se e SSD/NVMe; Win32_DiskDrive se a API de armazenamento nao responder
+            var disks = new List<string>();
+            foreach (var d in WmiAll("MSFT_PhysicalDisk", "FriendlyName, Size, MediaType, BusType", @"\\.\root\Microsoft\Windows\Storage"))
+            {
+                int bus = (int)WD(d, "BusType"), media = (int)WD(d, "MediaType");
+                if (bus == 7 || bus == 12 || bus == 14 || bus == 15) continue;   // USB, SD, virtual, arquivo
+                string kind = bus == 17 ? "SSD NVMe" : media == 4 ? "SSD" : media == 3 ? "HD" : "";
+                disks.Add(WS(d, "FriendlyName") + " (" + Hw.Dec(WD(d, "Size")) + (kind.Length > 0 ? ", " + kind : "") + ")");
+            }
+            if (disks.Count == 0)
+                foreach (var d in WmiAll("Win32_DiskDrive", "Model, Size, MediaType, InterfaceType"))
+                    if (WS(d, "MediaType").IndexOf("Fixed", StringComparison.OrdinalIgnoreCase) >= 0 && WS(d, "InterfaceType") != "USB")
+                        disks.Add(WS(d, "Model") + " (" + Hw.Dec(WD(d, "Size")) + ")");
+            add(Hw.Disks, string.Join(" · ", disks));
+            return l;
+        }
 
         // --- instalacao ---
         static readonly string InstallDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", "EvidenceMonitor");
