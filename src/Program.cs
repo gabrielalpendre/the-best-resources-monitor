@@ -11,6 +11,7 @@ using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Media.Imaging;
 using Avalonia.Styling;
 using Avalonia.Themes.Fluent;
+using Avalonia.VisualTree;
 using Avalonia.Threading;
 
 namespace EvidenceMonitor
@@ -24,11 +25,25 @@ namespace EvidenceMonitor
         public override void Initialize()
         {
             Styles.Add(new FluentTheme());
-            RequestedThemeVariant = ThemeVariant.Light;
+            // segue o tema do sistema (EVIDENCE_THEME=dark|light força um, usado nos testes)
+            var forced = (Environment.GetEnvironmentVariable("EVIDENCE_THEME") ?? "").ToLowerInvariant();
+            RequestedThemeVariant = forced == "dark" ? ThemeVariant.Dark : forced == "light" ? ThemeVariant.Light : ThemeVariant.Default;
+            ApplyTheme();
+            ActualThemeVariantChanged += (s, e) => ApplyTheme();
+            Name = Dialog.AppTitle;
+        }
+
+        // Troca a paleta e redesenha as janelas abertas (graficos e tabela sao desenhados a mao)
+        void ApplyTheme()
+        {
+            Pal.Apply(ActualThemeVariant == ThemeVariant.Dark);
             Resources["SystemAccentColor"] = Pal.Series;
             Resources["SystemAccentColorDark1"] = Pal.Series;
             Resources["SystemAccentColorLight1"] = Pal.Series;
-            Name = Dialog.AppTitle;
+            var life = ApplicationLifetime as IClassicDesktopStyleApplicationLifetime;
+            if (life == null) return;
+            foreach (var w in life.Windows)
+                foreach (var v in w.GetVisualDescendants()) v.InvalidateVisual();
         }
 
         public override void OnFrameworkInitializationCompleted()

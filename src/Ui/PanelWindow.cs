@@ -60,7 +60,7 @@ namespace EvidenceMonitor
 
             // topo: periodo + resumo
             // DockPanel: o ultimo filho (resumo) fica com a largura que sobra e e cortado com "..."
-            var top = new DockPanel { Margin = new Thickness(10, 8, 10, 4) };
+            var top = new DockPanel { Margin = new Thickness(10, 6, 10, 4) };
             top.Children.Add(Docked(Pal.Label("Período:")));
             foreach (var pair in new[] { new object[] { "15 min", 15 }, new object[] { "1 h", 60 }, new object[] { "6 h", 360 }, new object[] { "24 h", 1440 } })
             {
@@ -73,8 +73,22 @@ namespace EvidenceMonitor
             StyleRange();
 
             // ficha do computador (lida em segundo plano: WMI e system_profiler podem levar alguns segundos)
-            var hwBar = new WrapPanel { Margin = new Thickness(12, 0, 12, 4) };
+            var hwBar = new DockPanel { Margin = new Thickness(14, 8, 14, 8) };
             hwBar.Children.Add(Pal.Label("Lendo informações do computador...", Pal.BMuted, 11.5));
+            var hwHead = new DockPanel { Margin = new Thickness(14, 8, 10, 8) };
+            var fullBtn = Pal.Btn("Ficha completa", () => Dialog.Text("Ficha do computador", Hw.Text(), this, 820, 440));
+            fullBtn.FontSize = 11.5; fullBtn.Padding = new Thickness(10, 3);
+            DockPanel.SetDock(fullBtn, Dock.Right); hwHead.Children.Add(fullBtn);
+            hwHead.Children.Add(new TextBlock { Text = "Este computador", FontSize = 13, FontWeight = FontWeight.SemiBold, Foreground = Pal.BInk, VerticalAlignment = VerticalAlignment.Center });
+            var hwBody = new DockPanel();
+            var headBorder = new Border { Child = hwHead, BorderBrush = Pal.BGrid, BorderThickness = new Thickness(0, 0, 0, 1) };
+            DockPanel.SetDock(headBorder, Dock.Top);
+            hwBody.Children.Add(headBorder); hwBody.Children.Add(hwBar);
+            var hwCard = new Border
+            {
+                Child = hwBody, Background = Pal.BSurface, BorderBrush = Pal.BAxis, BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(10), Margin = new Thickness(10, 10, 10, 4), ClipToBounds = true
+            };
             ThreadPool.QueueUserWorkItem(_ => { var hw = Hw.Get(); Dispatcher.UIThread.Post(() => FillHardware(hwBar, hw)); });
 
             // graficos (6 x 2)
@@ -158,30 +172,61 @@ namespace EvidenceMonitor
             bar.Children.Add(new TextBlock { Text = "Tracejado vermelho nos gráficos = " + char.ToLower(P.CatLabels["dwm"][0]) + P.CatLabels["dwm"].Substring(1) + ",memória esgotada ou evento crítico. Passe o mouse num gráfico para ver o mesmo instante em todos.", Foreground = Pal.BMuted, FontSize = 11.5, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12, 0, 0, 0), TextWrapping = TextWrapping.Wrap });
 
             var grid = new Grid { RowDefinitions = new RowDefinitions("Auto,Auto,52*,6,48*,Auto") };
-            Grid.SetRow(top, 0); Grid.SetRow(hwBar, 1); Grid.SetRow(charts, 2);
+            Grid.SetRow(hwCard, 0); Grid.SetRow(top, 1); Grid.SetRow(charts, 2);
             var splitter = new GridSplitter { Background = Brushes.Transparent, ResizeDirection = GridResizeDirection.Rows };
             Grid.SetRow(splitter, 3); Grid.SetRow(tabs, 4); Grid.SetRow(bar, 5);
-            grid.Children.Add(top); grid.Children.Add(hwBar); grid.Children.Add(charts); grid.Children.Add(splitter); grid.Children.Add(tabs); grid.Children.Add(bar);
+            grid.Children.Add(hwCard); grid.Children.Add(top); grid.Children.Add(charts); grid.Children.Add(splitter); grid.Children.Add(tabs); grid.Children.Add(bar);
             Content = grid;
             UpdateHeaders();
         }
 
-        // "Processador: Intel Core i5-10400 · Núcleos: 6 núcleos · 12 threads · ..." + botao com a ficha completa
-        void FillHardware(WrapPanel bar, List<KeyValuePair<string, string>> hw)
+        // Icones (traco, grade 24x24) de cada item da ficha
+        static readonly Dictionary<string, string> HwIcons = new Dictionary<string, string>
+        {
+            { Hw.Cpu, "M6 4h12v16H6z M9 8h6v8H9z M2 9h4 M2 15h4 M18 9h4 M18 15h4 M10 1v3 M14 1v3 M10 20v3 M14 20v3" },
+            { Hw.Cores, "M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z" },
+            { Hw.Cache, "M13 2L3 14h9l-1 8L21 10h-9l1-8z" },
+            { Hw.Mem, "M2 6h20v4h-1v3h1v5H2v-5h1v-3H2z M6 18v-3 M10 18v-3 M14 18v-3 M18 18v-3 M7 9h3v3H7z M14 9h3v3h-3z" },
+            { Hw.Gpu, "M2 4h20v13H2z M8 21h8 M12 17v4" },
+            { Hw.Board, "M3 3h18v18H3z M8 8h5v5H8z M13 10h5 M10 13v5 M16 6v4 M6 16h4" },
+            { Hw.Computer, "M4 5h16v10H4z M2 19h20" },
+            { Hw.Serial, "M4 9h16 M4 15h16 M10 3L8 21 M16 3L14 21" },
+        };
+
+        static Control HwIcon(string key)
+        {
+            string d; if (!HwIcons.TryGetValue(key, out d)) d = "M4 4h16v16H4z";
+            var path = new Avalonia.Controls.Shapes.Path
+            {
+                Data = Geometry.Parse(d), Stroke = Pal.BSeries, StrokeThickness = 1.8, Width = 24, Height = 24,
+                StrokeLineCap = PenLineCap.Round, StrokeJoin = PenLineJoin.Round
+            };
+            return new Border
+            {
+                Width = 30, Height = 30, CornerRadius = new CornerRadius(7), Background = Pal.BAccentBg, VerticalAlignment = VerticalAlignment.Center,
+                Child = new Viewbox { Width = 16, Height = 16, Child = path }
+            };
+        }
+
+        // Card com a ficha: icone + rotulo pequeno + valor, e um botao com a ficha completa
+        // Grade de 4 colunas iguais: os icones ficam um em cima do outro
+        void FillHardware(DockPanel bar, List<KeyValuePair<string, string>> hw)
         {
             bar.Children.Clear();
+            var cells = new UniformGrid { Columns = 4 };
             foreach (var key in Hw.Summary)
             {
                 var kv = hw.FirstOrDefault(x => x.Key == key); if (kv.Key == null) continue;
-                var t = new TextBlock { FontSize = 11.5, Margin = new Thickness(0, 2, 16, 2), MaxWidth = 460, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center };
-                t.Inlines.Add(new Run(kv.Key + ": ") { Foreground = Pal.BMuted });
-                t.Inlines.Add(new Run(kv.Value) { Foreground = Pal.BInk, FontWeight = FontWeight.SemiBold });
-                ToolTip.SetTip(t, kv.Key + ": " + kv.Value);
-                bar.Children.Add(t);
+                var text = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0) };
+                text.Children.Add(new TextBlock { Text = kv.Key, Foreground = Pal.BMuted, FontSize = 10.5 });
+                text.Children.Add(new TextBlock { Text = kv.Value, Foreground = Pal.BInk, FontWeight = FontWeight.SemiBold, FontSize = 12, TextTrimming = TextTrimming.CharacterEllipsis });
+                var item = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*"), Margin = new Thickness(0, 4, 16, 4) };
+                var icon = HwIcon(key); Grid.SetColumn(text, 1);
+                item.Children.Add(icon); item.Children.Add(text);
+                ToolTip.SetTip(item, kv.Key + ": " + kv.Value);
+                cells.Children.Add(item);
             }
-            var b = Pal.Btn("Ficha completa", () => Dialog.Text("Ficha do computador", Hw.Text(), this, 820, 440));
-            b.FontSize = 11.5; b.Padding = new Thickness(8, 1); b.VerticalAlignment = VerticalAlignment.Center;
-            bar.Children.Add(b);
+            bar.Children.Add(cells);
         }
 
         static Control Docked(Control c) { DockPanel.SetDock(c, Dock.Left); return c; }
