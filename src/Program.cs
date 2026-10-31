@@ -110,7 +110,7 @@ namespace EvidenceMonitor
             base.OnFrameworkInitializationCompleted();
         }
 
-        // --snapshot <saida.png> [ciclos] [aba|overlay] [filtro] [hover: segundos atras] -> renderiza o painel e salva (para testes)
+        // --snapshot <saida.png> [ciclos] [aba|overlay (ciclos = segundos aberto)] [filtro] [hover: segundos atras] -> renderiza o painel e salva (para testes)
         static async void Snapshot(IClassicDesktopStyleApplicationLifetime life)
         {
             string outp = Args.Length > 1 ? Args[1] : "panel.png";
@@ -123,7 +123,7 @@ namespace EvidenceMonitor
                 {
                     var ov = new OverlayWindow { ShowInTaskbar = false };
                     ov.Show(); ov.UpdateData(row);
-                    await System.Threading.Tasks.Task.Delay(500);
+                    await System.Threading.Tasks.Task.Delay(Math.Max(500, (Args.Length > 2 ? int.Parse(Args[2]) : 1) * 1000));
                     using (var ob = new RenderTargetBitmap(new PixelSize((int)ov.Bounds.Width, (int)ov.Bounds.Height), new Vector(96, 96))) { ob.Render(ov); ob.Save(outp); }
                     ov.Close(); life.Shutdown(); return;
                 }

@@ -1,6 +1,10 @@
 // Mini monitor sobreposto: janela pequena, sem borda, sempre por cima dos outros apps e arrastavel.
 // A posicao fica salva em overlay.pos para reabrir no mesmo lugar.
+// No Linux (X11/XWayland) a janela e "override-redirect", como tooltips e overlays de jogos: o gerenciador de janelas
+// nao a controla e ela fica na camada mais alta, acima ate de apps em tela cheia (o "sempre no topo" comum fica abaixo
+// da tela cheia ativa no KWin). Por isso o arraste e feito aqui, movendo a janela a mao.
 using System;
+using System.Runtime.InteropServices;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -18,7 +22,9 @@ namespace EvidenceMonitor
         readonly Dictionary<string, TextBlock> values = new Dictionary<string, TextBlock>();
         readonly Dictionary<string, Control> rows = new Dictionary<string, Control>();
         readonly SolidColorBrush bg = new SolidColorBrush();
-        bool restored;
+        bool dragging;
+        Point grab;
+        PixelPoint cur; // posicao pedida durante o arraste (Position so atualiza quando o X confirma)
 
         public Action OpenPanelRequested, CloseRequested;
 
@@ -42,11 +48,22 @@ namespace EvidenceMonitor
             Content = card;
             ToolTip.SetTip(card, "Arraste para mover · botão direito para opções · duplo clique abre o painel");
 
+            // arraste manual: a janela anda junto com o ponteiro, mantendo o ponto onde foi agarrada
             card.PointerPressed += (s, e) =>
             {
-                var pt = e.GetCurrentPoint(this);
-                if (pt.Properties.IsLeftButtonPressed && e.ClickCount == 1) BeginMoveDrag(e);
+                if (!e.GetCurrentPoint(this).Properties.IsLeftButtonPressed || e.ClickCount != 1) return;
+                dragging = true; grab = e.GetPosition(this); cur = Position; e.Pointer.Capture(card);
             };
+            card.PointerMoved += (s, e) =>
+            {
+                if (!dragging) return;
+                var d = e.GetPosition(this) - grab;
+                if (d.X == 0 && d.Y == 0) return;
+                cur = new PixelPoint(cur.X + (int)Math.Round(d.X * RenderScaling), cur.Y + (int)Math.Round(d.Y * RenderScaling));
+                Position = cur;
+            };
+            card.PointerReleased += (s, e) => { if (!dragging) return; dragging = false; e.Pointer.Capture(null); SavePos(); };
+            card.PointerCaptureLost += (s, e) => dragging = false;
             card.DoubleTapped += (s, e) => OpenPanelRequested?.Invoke();
             var ctx = new ContextMenu();
             ctx.Items.Add(Item("Abrir painel", () => OpenPanelRequested?.Invoke()));
@@ -54,8 +71,9 @@ namespace EvidenceMonitor
             ctx.Items.Add(Item("Fechar mini monitor", () => CloseRequested?.Invoke()));
             card.ContextMenu = ctx;
 
-            PositionChanged += (s, e) => { if (restored) SavePos(); };
-            Opened += (s, e) => { ApplyTheme(); RestorePos(); restored = true; };
+            Opened += (s, e) => { ApplyTheme(); RestorePos(); };
+            // a janela X11 ja existe aqui, mas ainda nao foi mapeada: e o momento de marcar override-redirect
+            if (OperatingSystem.IsLinux()) X11Above.Apply(TryGetPlatformHandle());
         }
 
         static MenuItem Item(string h, Action a) { var m = new MenuItem { Header = h }; m.Click += (s, e) => a(); return m; }
@@ -111,7 +129,7 @@ namespace EvidenceMonitor
 
         void SavePos()
         {
-            try { File.WriteAllText(PosFile, Position.X.ToString(CultureInfo.InvariantCulture) + " " + Position.Y.ToString(CultureInfo.InvariantCulture)); } catch { }
+            try { File.WriteAllText(PosFile, cur.X.ToString(CultureInfo.InvariantCulture) + " " + cur.Y.ToString(CultureInfo.InvariantCulture)); } catch { }
         }
 
         // posicao salva, se ainda cair dentro de alguma tela; senao canto superior direito da tela principal
@@ -133,6 +151,41 @@ namespace EvidenceMonitor
                     int w = (int)(card.DesiredSize.Width * scr.Scaling);
                     Position = new PixelPoint(scr.WorkingArea.Right - w - 20, scr.WorkingArea.Y + 20);
                 }
+            }
+            catch { }
+        }
+    }
+
+    // Xlib direto: o Avalonia nao expoe override-redirect para janelas comuns
+    static class X11Above
+    {
+        [StructLayout(LayoutKind.Sequential)]
+        struct XSetWindowAttributes
+        {
+            public IntPtr background_pixmap, background_pixel, border_pixmap, border_pixel;
+            public int bit_gravity, win_gravity, backing_store;
+            public IntPtr backing_planes, backing_pixel;
+            public int save_under;
+            public IntPtr event_mask, do_not_propagate_mask;
+            public int override_redirect;
+            public IntPtr colormap, cursor;
+        }
+        const ulong CWOverrideRedirect = 1 << 9;
+
+        [DllImport("libX11.so.6")] static extern IntPtr XOpenDisplay(IntPtr name);
+        [DllImport("libX11.so.6")] static extern int XCloseDisplay(IntPtr dpy);
+        [DllImport("libX11.so.6")] static extern int XChangeWindowAttributes(IntPtr dpy, IntPtr win, UIntPtr mask, ref XSetWindowAttributes attrs);
+        [DllImport("libX11.so.6")] static extern int XSync(IntPtr dpy, bool discard);
+
+        public static void Apply(Avalonia.Platform.IPlatformHandle h)
+        {
+            if (h == null || h.HandleDescriptor != "XID") return;
+            try
+            {
+                IntPtr dpy = XOpenDisplay(IntPtr.Zero); if (dpy == IntPtr.Zero) return;
+                var a = new XSetWindowAttributes { override_redirect = 1 };
+                XChangeWindowAttributes(dpy, h.Handle, (UIntPtr)CWOverrideRedirect, ref a);
+                XSync(dpy, false); XCloseDisplay(dpy);
             }
             catch { }
         }
